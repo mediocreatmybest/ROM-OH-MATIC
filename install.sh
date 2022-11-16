@@ -15,7 +15,7 @@ apt-get update && apt-get -yq dist-upgrade
 
 # Install basic compilation tools and dev libraries
 apt install -yq build-essential \
-                    iasl lzma-dev mtools perl python \
+                    iasl lzma-dev mtools perl python3 \
                     subversion uuid-dev liblzma-dev mtools
 #apt-get -y install make gcc zlib1g-dev libc6-dev libssl-dev libstdc++6-4.7-dev libc-dev-bin liblzma-dev
 
@@ -44,7 +44,7 @@ chown -R www-data:www-data /var/run/ipxe-build/ipxe-build-cache.lock \
 
 # Install Apache with fast CGI and PHP module
 #apt-get -y install libapache2-mod-fcgid libapache2-mod-php5 && a2enmod fcgid php5
-apt-get -yq install libapache2-mod-fcgid libapache2-mod-php && a2enmod fcgid php7.4
+apt-get -yq install libapache2-mod-fcgid libapache2-mod-php && a2enmod fcgid php8*
 
 # Install JSON library Perl
 apt-get -yq install libjson-perl libjson-any-perl libjson-xs-perl

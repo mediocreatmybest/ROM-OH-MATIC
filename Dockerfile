@@ -19,7 +19,7 @@
 
 # Pull base image.
 FROM ubuntu:latest
-MAINTAINER Francois Lacroix <xbgmsharp@gmail.com>
+LABEL Francois Lacroix <xbgmsharp@gmail.com>
 
 # Setup system and install tools
 #RUN echo "initscripts hold" | dpkg --set-selections
