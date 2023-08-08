@@ -46,7 +46,7 @@ while (my $file = readdir(DIR))
 		if ($line =~ /#define/)
 		{
 			#print $line . "\n";
-                        if ($line =~ /([a-zA-Z_\/\/\#]*)(\t+|\s+)(\w*)\t+(\W+)([a-zA-Z0-9_\-\'\:\=\,\>\(\)\!\/ ]+)/g)
+			if ($line =~ /([a-zA-Z_\/\/\#]*)(\t+|\s+)(\w*)\t+(\W+)([a-zA-Z0-9_\-\'\:\=\,\>\(\)\!\/ ]+)/g)
 			{
 				#print "----------Found in 2\n";
 				#print "1 - $1\n";
@@ -66,18 +66,22 @@ while (my $file = readdir(DIR))
 						push(@$bool, {file=> $file, type => "define", name => $name, description => $desc});
 					}
 				}
-                                if ($type !~ /define/)
-                                {
-                                        #print "Add input-------------------------------\n";
-                                        push(@$bool, {file=> $file, type => "input", name => $type, value => $name, description => $desc});
-                                }
-                        }
+				if ($type !~ /define/)
+				{
+						#print "Add input-------------------------------\n";
+						push(@$bool, {file=> $file, type => "input", name => $type, value => $name, description => $desc});
+				}
+			}
 			elsif ($line =~ /([a-zA-Z_]*)(\t+|\s+)([a-zA-Z0-9\:\/\"\.\% ]+)$/g)
 			{
 				#print "----------Found in 1\n";
 				#print "1 - $1\n";
 				#print "3 - $3\n";
 				push(@$bool, {file=> $file, type => "input", name => $1, value => $3, description => $1});
+			}
+			elsif ($line =~ /#define OCSP_CHECK/)
+			{
+				push(@$bool, {file=>$file, type=>"undef", name=>"OCSP_CHECK", description=>"Allow the user to explicitly disable the use of OCSP checks."});
 			}
 
 		}
