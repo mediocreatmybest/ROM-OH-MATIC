@@ -23,6 +23,7 @@ if (!$filemtime or (time() - $filemtime >= $cache_life))
 {
 	exec($command, $output, $result);
 }
+header('Content-Type: application/json; charset=utf-8');
 readfile($cache_file);
 
 ?>
