@@ -16,7 +16,7 @@ $cache_path = dirname(__FILE__) . "/cache";
 $cache_file = "$cache_path/$file_name";
 $cache_life = '3600'; //caching time, in seconds, 1h
 
-$command = "/opt/rom-o-matic/ipxe/src/util/parseheaders.pl 1> \"$cache_file\"";
+$command = "/opt/rom-o-matic/scripts/parseheaders.pl 1> \"$cache_file\"";
 
 $filemtime = @filemtime($cache_file);  // returns FALSE if file does not exist
 if (!$filemtime or (time() - $filemtime >= $cache_life))
