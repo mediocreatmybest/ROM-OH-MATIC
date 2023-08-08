@@ -69,6 +69,7 @@ $(document).ready(function() {
                 subtitle.VNIC = 'Virtual network devices:';
                 subtitle.CRYPTO = 'Crypto configuration:';
                 subtitle.TLS = 'TLS configuration:';
+                subtitle.OCSP = 'OCSP Configuration:'
 
                 var listoptions = '';
                 var previous;

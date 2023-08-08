@@ -89,7 +89,7 @@ while (my $file = readdir($dir))
 }
 closedir $dir;
 
-my @sorted = sort { $a->{name} <=> $b->{name} } @options
+my @sorted = sort { $a->{name} <=> $b->{name} } @options;
 
 print JSON->new->pretty->utf8->encode(\@sorted);
 
