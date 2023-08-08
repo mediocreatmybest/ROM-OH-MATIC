@@ -10,7 +10,7 @@
 #------------------------------------------------------------------------
 */
 
-$cache_path = dirname(__FILE__) + "/cache";
+$cache_path = dirname(__FILE__) . "/cache";
 $cache_file = "$cache_path/nics.json";
 $cache_life = '3600'; //caching time, in seconds, 1h
 
