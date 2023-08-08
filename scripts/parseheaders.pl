@@ -25,7 +25,7 @@ use autodie;
 use v5.10;
 use JSON;
 
-my $bool; # list of define value
+my @options; # list of define value
 
 my $directory = '/opt/rom-o-matic/ipxe/src/config';
 opendir my $dir, $directory or die $!;
@@ -55,7 +55,7 @@ while (my $file = readdir($dir))
 			{
 				my $value = $+{Value};
 				$value =~ s/^"|"$//g;
-				push(@$bool, {
+				push(@options, {
 					file		=> $file,
 					type		=> "input",
 					name		=> $+{Name},
@@ -66,7 +66,7 @@ while (my $file = readdir($dir))
 			elsif ($+{Disabled} eq "\\")
 			{
 				my $type = $+{Type} == "define" ? "undef" : "define";
-				push(@$bool, {
+				push(@options, {
 					file		=> $file,
 					type		=> $type,
 					name		=> $+{Name},
@@ -75,7 +75,7 @@ while (my $file = readdir($dir))
 			}
 			else
 			{
-				push(@$bool, {
+				push(@options, {
 					file		=> $file,
 					type		=> $+{Type},
 					name		=> $+{Name},
@@ -89,6 +89,8 @@ while (my $file = readdir($dir))
 }
 closedir $dir;
 
-print JSON->new->pretty->utf8->encode(\@$bool);
+my @sorted = sort { $a->{name} <=> $b->{name} } @options
+
+print JSON->new->pretty->utf8->encode(\@sorted);
 
 exit;
