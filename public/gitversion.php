@@ -10,7 +10,7 @@
 #------------------------------------------------------------------------
 */
 
-$command = "git -C /opt/ipxe rev-list --all --max-count=30 --abbrev-commit --abbrev=1";
+$command = "git -C /opt/rom-o-matic/ipxe rev-list --all --max-count=30 --abbrev-commit --abbrev=1";
 exec($command, $output, $result);
 echo json_encode($output);
 
