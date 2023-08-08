@@ -15,7 +15,7 @@
 # or
 # perl -MCPAN -e 'install JSON'
 ### Install
-# Copy the script into the ipxe source eg: /var/tmp/ipxe/src/util/
+# Link the script into the ipxe source eg: /opt/ipxe/src/util/
 ### Run
 # The script is run by options.php
 
@@ -29,7 +29,7 @@ use JSON;
 my $bool; # list of define value
 #$def{bool} = \@bool;
 
-my $directory = '/var/tmp/ipxe/src/config';
+my $directory = '/opt/ipxe/src/config';
 opendir (DIR, $directory) or die $!;
 while (my $file = readdir(DIR))
 {
