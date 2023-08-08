@@ -10,11 +10,8 @@
 #------------------------------------------------------------------------
 */
 
-//$output = exec('cd /var/tmp/ipxe/src/ && git describe --always --abbrev=1 --match ""');
-exec('cd /var/tmp/ipxe/src/ && git rev-list --all --max-count=20 --abbrev-commit --abbrev=1', $output);
-//print_r($output);
+$command = "git -C /opt/ipxe rev-list --all --max-count=30 --abbrev-commit --abbrev=1";
+exec($command, $output, $result);
 echo json_encode($output);
 
 ?>
-
-

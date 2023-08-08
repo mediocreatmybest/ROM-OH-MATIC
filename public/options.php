@@ -10,16 +10,19 @@
 #------------------------------------------------------------------------
 */
 
-$cache_file = "/tmp/ipxeoptions";
+$file_name = 'options.json';
+
+$cache_path = dirname(__FILE__) . "/cache";
+$cache_file = "$cache_path/$file_name";
 $cache_life = '3600'; //caching time, in seconds, 1h
+
+$command = "/opt/ipxe/src/util/parseheaders.pl 1> \"$cache_file\"";
 
 $filemtime = @filemtime($cache_file);  // returns FALSE if file does not exist
 if (!$filemtime or (time() - $filemtime >= $cache_life))
 {
-	$outpout = exec("rm -f /tmp/ipxeoptions && cd /var/tmp/ipxe/src/ && perl /var/tmp/ipxe/src/util/parseheaders.pl 1> /tmp/ipxeoptions");
-	readfile("/tmp/ipxeoptions");
-} else {
-	readfile("/tmp/ipxeoptions");
+	exec($command, $output, $result);
 }
+readfile($cache_file);
 
 ?>
