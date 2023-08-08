@@ -31,7 +31,7 @@ $(document).ready(function() {
                         //alert(listnics[i].ipxe_name);
                         options += '<option value="' + listnics[i].ipxe_name + '">' + listnics[i].ipxe_name + '</option>';
                         if (listnics[i].device_id != null && listnics[i].vendor_id != null) {
-                            roms.push({device_id: listnics[i].device_id, vendor_id: listnics[i].vendor_id});
+                                roms.push({device_id: listnics[i].device_id, vendor_id: listnics[i].vendor_id});
                         }
                 }
                 $("#nics").html(options);
@@ -67,6 +67,8 @@ $(document).ready(function() {
                 subtitle.USB = 'USB configuration:';
                 subtitle.HTTP = 'HTTP extensions:';
                 subtitle.VNIC = 'Virtual network devices:';
+                subtitle.CRYPTO = 'Crypto configuration:';
+                subtitle.TLS = 'TLS configuration:';
 
                 var listoptions = '';
                 var previous;
@@ -112,9 +114,9 @@ $(document).ready(function() {
                                 desc = custom[i].description;
                                 if (custom[i].name === custom[i].description) { desc = ""; }
 				if (custom[i].name.indexOf("PRODUCT") !== -1)
-	                                listoptions += '<label for="' + custom[i].name + '">' + custom[i].name + ': <input type="text" size="50" placeholder="' + custom[i].value.replace('"', '') + '" value="' + custom[i].value.replace('"', '') + '" name="' + custom[i].file + '/' + custom[i].name +'" /> ' + desc + '</label><br/><br/>';
+                                        listoptions += '<label for="' + custom[i].name + '">' + custom[i].name + ': <input type="text" size="50" placeholder="' + custom[i].value.replace('"', '') + '" value="' + custom[i].value.replace('"', '') + '" name="' + custom[i].file + '/' + custom[i].name +'" /> ' + desc + '</label><br/><br/>';
 				else
-	                                listoptions += '<label for="' + custom[i].name + '">' + custom[i].name + ': <input type="text" size="6" placeholder="' + custom[i].value.replace('"', '') + '" value="' + custom[i].value.replace('"', '') + '" name="' + custom[i].file + '/' + custom[i].name +'" /> ' + desc + '</label><br/><br/>';
+                                        listoptions += '<label for="' + custom[i].name + '">' + custom[i].name + ': <input type="text" size="6" placeholder="' + custom[i].value.replace('"', '') + '" value="' + custom[i].value.replace('"', '') + '" name="' + custom[i].file + '/' + custom[i].name +'" /> ' + desc + '</label><br/><br/>';
                         } else { alert("we have an issue"); }
                 }
                 $("#options").html(listoptions);
