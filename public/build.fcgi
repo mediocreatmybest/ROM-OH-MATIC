@@ -74,7 +74,7 @@ my $niceness = $cfg->val ( "build", "niceness", 0 );
 my $concurrency = $cfg->val ( "build", "concurrency" );
 my $bindirs = $cfg->val ( "build", "bindirs", "bin" );
 $bindirs = { map { $_ => 1 } split ( /\s+/, $bindirs ) };
-my $tmpdir = $cfg->val ( "build", "tmpdir", tmpdir() );
+my $tmpdir = tmpdir(); #$cfg->val ( "build", "tmpdir", tmpdir() );
 my $cacheroot = $cfg->val ( "cache", "root" )
     or die "No cache root specified in ".$cfgfile."\n";
 die "Cache root \"".$cacheroot."\" does not exist\n" unless -d $cacheroot;
