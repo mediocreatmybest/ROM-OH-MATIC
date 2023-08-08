@@ -79,7 +79,7 @@ while (my $file = readdir(DIR))
 				#print "3 - $3\n";
 				push(@$bool, {file=> $file, type => "input", name => $1, value => $3, description => $1});
 			}
-			elsif ($line =~ /#define OCSP_CHECK/)
+			elsif ($line =~ /OCSP_CHECK/g)
 			{
 				push(@$bool, {file=>$file, type=>"undef", name=>"OCSP_CHECK", description=>"Allow the user to explicitly disable the use of OCSP checks."});
 			}
