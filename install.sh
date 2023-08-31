@@ -22,8 +22,8 @@ apt -yq install git
 git clone --recursive --branch 2204 https://github.com/mediocreatmybest/ROM-OH-MATIC.git /opt/rom-o-matic
 git -C /opt/rom-o-matic submodule init
 git -C /opt/rom-o-matic submodule update
-rm -rf /var/www/html
-ln -s /opt/rom-o-matic/public /var/www/html
+#rm -rf /var/www/html
+#ln -s /opt/rom-o-matic/public /var/www/html
 #ln -s /opt/rom-o-matic/scripts/parseheaders.pl /opt/rom-o-matic/ipxe/src/util/
 chown -R www-data:www-data /opt/rom-o-matic
 git config --global --add safe.directory /opt/rom-o-matic
@@ -98,3 +98,6 @@ cat << EOF > /etc/apache2/mods-enabled/fcgid.conf
     </Files>
 </IfModule>
 EOF
+# Move symlink creation to the end of build process
+rm -rf /var/www/html
+ln -s /opt/rom-o-matic/public /var/www/html
