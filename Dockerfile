@@ -52,7 +52,6 @@ RUN echo 'root:admin' | chpasswd
 
 # Add the install script in the directory.
 ADD install.sh /tmp/install.sh
-ADD start.sh /etc/start.sh
 #ADD . /app
 
 # Install it all
@@ -79,9 +78,8 @@ RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 ONBUILD apt-get update && apt-get -yq upgrade
 ONBUILD apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-RUN chmod +x /var/www/ipxe-buildweb/install.sh
-RUN chmod +x /etc/start.sh
+RUN chmod +x /opt/rom-o-matic/start.sh
 
 #RUN /etc/init.d/apache2 start
 #ENTRYPOINT ["/usr/bin/tail","-f","/var/log/apache2/access.log"]
-ENTRYPOINT ["/etc/start.sh"]
+ENTRYPOINT ["/opt/rom-o-matic/start.sh"]

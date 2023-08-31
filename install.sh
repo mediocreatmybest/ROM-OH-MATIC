@@ -19,7 +19,7 @@ apt -yq install git
 # clone this repository
 # git clone https://github.com/realslacker/rom-o-matic.git /opt/rom-o-matic
 # Test git clone of brach
-git clone --branch 2204 https://github.com/mediocreatmybest/ROM-OH-MATIC.git /opt/rom-o-matic
+git clone --recursive --branch 2204 https://github.com/mediocreatmybest/ROM-OH-MATIC.git /opt/rom-o-matic
 git -C /opt/rom-o-matic submodule init
 git -C /opt/rom-o-matic submodule update
 rm -rf /var/www/html
@@ -98,5 +98,3 @@ cat << EOF > /etc/apache2/mods-enabled/fcgid.conf
     </Files>
 </IfModule>
 EOF
-
-service apache2 start
