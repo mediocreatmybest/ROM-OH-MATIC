@@ -27,5 +27,5 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
-          tags: mediocreatmybest/ipxe-buildweb_test:latest
+          tags: mediocreatmybest/ipxe-buildweb_original:latest
           
