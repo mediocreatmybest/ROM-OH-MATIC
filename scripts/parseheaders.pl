@@ -29,7 +29,7 @@ use JSON;
 my $bool; # list of define value
 #$def{bool} = \@bool;
 
-my $directory = '/var/tmp/ipxe/src/config';
+my $directory = '/opt/rom-o-matic/ipxe/src/config';
 opendir (DIR, $directory) or die $!;
 while (my $file = readdir(DIR))
 {
@@ -95,7 +95,7 @@ while (my $file = readdir(DIR))
 					#print "to FIXE-------------------------------\n";
 					pop(@$bool);
 				}
-			}	
+			}
 		}
 	}
 	close (FILE);
