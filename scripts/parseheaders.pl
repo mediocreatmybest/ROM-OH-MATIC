@@ -36,7 +36,7 @@ while (my $file = readdir($dir))
 
 	open my $fh, "$directory/$file" or die $!;
 	while(my $line = <$fh>) {
-		
+
 		chomp($line);
 		next unless($line =~ m|/*#(un)?def|);
 
@@ -81,7 +81,7 @@ while (my $file = readdir($dir))
 					name		=> $+{Name},
 					description	=> $+{Description}
 				});
-			}	
+			}
 		}
 
 	}
@@ -89,7 +89,7 @@ while (my $file = readdir($dir))
 }
 closedir $dir;
 
-my @sorted = sort { $a->{name} <=> $b->{name} } @options;
+my @sorted = sort { $a->{name} cmp $b->{name} } @options;
 
 print JSON->new->pretty->utf8->encode(\@sorted);
 
