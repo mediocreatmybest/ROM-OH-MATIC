@@ -40,7 +40,7 @@ $(document).ready(function() {
         $.getJSON("options.php", null, function(custom) {
                 //alert(custom.length);
 
-                // List of subtitle of options	
+                // List of subtitle of options
                 var subtitle = new Object;
                 subtitle._CMD = 'Command-line commands to include:';
                 subtitle.NET_PROTO = 'Network protocols:';
@@ -77,7 +77,7 @@ $(document).ready(function() {
                 for (var i = 0; i < custom.length; i++) {
                         //alert(custom[i].name);
                         //alert(custom[i].description);
-                        for (var y in subtitle) 
+                        for (var y in subtitle)
                         {
                                 var regexp = new RegExp(y);
                                 var match = regexp.exec(custom[i].name);
@@ -217,12 +217,12 @@ $(document).ready(function() {
                 if (embed == "#!ipxe") { embed = ""; }
                 if (wizard == "standard")
                 { 	/* get values from elements on the STD wizard */
-                        bindir = $("#outputformatstd").val().split("/")[0]; 
+                        bindir = $("#outputformatstd").val().split("/")[0];
                         binary = $("#outputformatstd").val().split("/")[1];
                 }
                 else if (wizard == "advanced")
                 {	/* get values from elements on the ADV wizard */
-                        bindir = $("#outputformatadv").val().split("/")[0]; 
+                        bindir = $("#outputformatadv").val().split("/")[0];
                         binary = $("#outputformatadv").val().split("/")[1];
                         if (binary.indexOf("rom", binary.length - 3) !== -1)
                         {
@@ -359,7 +359,7 @@ $(document).ready(function() {
                 /* stop form from submitting normally */
                 event.preventDefault();
                 var url = buildcfg();
-                if (url) {                
+                if (url) {
                          window.location.href = url;
                 };
         });

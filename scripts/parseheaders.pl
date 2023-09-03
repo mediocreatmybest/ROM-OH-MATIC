@@ -15,7 +15,7 @@
 # or
 # perl -MCPAN -e 'install JSON'
 ### Install
-# Link the script into the ipxe source eg: /opt/ipxe/src/util/
+# Copy the script into the ipxe source eg: /var/tmp/ipxe/src/util/
 ### Run
 # The script is run by options.php
 
@@ -23,74 +23,90 @@ use strict;
 use warnings;
 use autodie;
 use v5.10;
+#use Data::Dumper;
 use JSON;
 
-my @options; # list of define value
+my $bool; # list of define value
+#$def{bool} = \@bool;
 
-my $directory = '/opt/rom-o-matic/ipxe/src/config';
-opendir my $dir, $directory or die $!;
-while (my $file = readdir($dir))
+my $directory = '/var/tmp/ipxe/src/config';
+opendir (DIR, $directory) or die $!;
+while (my $file = readdir(DIR))
 {
+	next if ($file =~ m/^\./);
 	next unless ($file =~ m/.h$/);
-	next if($file =~ m/(defaults|colour|named).h$/);
-
-	open my $fh, "$directory/$file" or die $!;
-	while(my $line = <$fh>) {
-
+	next if ($file =~ m/colour/); # File we skip
+	#print $file . "\n";
+	#my $file = "general.h";
+	open (FILE, $directory."/".$file);
+	while (my $line = <FILE>) {
 		chomp($line);
-		next unless($line =~ m|/*#(un)?def|);
-
-		if (
-			# match line with value and description
-			$line =~ m/^(?<Disabled>\/*)#(?<Type>\w+)\s+(?<Name>\w+)(?!\s+\/\*)\s+(?<Value>"[^"]*"|[A-Za-z0-9_-]+|\d+)\s+\/\*\s+(?<Description>(?:.(?!\*\/))+)/ ||
-			# match line with value only
-			$line =~ m/^(?<Disabled>\/*)#(?<Type>\w+)\s+(?<Name>\w+)(?!\s+\/\*)\s+(?<Value>"[^"]*"|[A-Za-z0-9_-]+|\d+)(?<Description>)/ ||
-			# match line with description only
-			$line =~ m/^(?<Disabled>\/*)#(?<Type>\w+)\s+(?<Name>\w+)\s+\/\*\s+(?<Description>(?:.(?!\*\/))+)(?<Value>)/ ||
-			# match line without value or description
-			$line =~ m/^(?<Disabled>\/*)#(?<Type>\w+)\s+(?<Name>\w+)(?<Value>)(?<Description>)/
-		)
+		# skip blank lines
+		next if ($line =~ m/^$/);
+		if ($line =~ /#define/)
 		{
-			if ($+{Value} ne "")
+			#print $line . "\n";
+                        if ($line =~ /([a-zA-Z_\/\/\#]*)(\t+|\s+)(\w*)\t+(\W+)([a-zA-Z0-9_\-\'\:\=\,\>\(\)\!\/ ]+)/g)
 			{
-				my $value = $+{Value};
-				$value =~ s/^"|"$//g;
-				push(@options, {
-					file		=> $file,
-					type		=> "input",
-					name		=> $+{Name},
-					value		=> $value,
-					description 	=> $+{Description}
-				});
-			}
-			elsif ($+{Disabled} eq "\\")
+				#print "----------Found in 2\n";
+				#print "1 - $1\n";
+				#print "3 - $3\n";
+				#print "5 - $5\n";
+				my $type = $1;
+				my $name = $3;
+				my $desc = $5;
+				if ($type =~ /define/)
+				{
+					if ($type =~ /^\/\/\#/) # If comment then undef
+					{
+						#print "Add bool undef-------------------------------\n";
+						push(@$bool, {file=> $file, type => "undef", name => $name, description => $desc});
+					} else {
+						#print "Add bool define-------------------------------\n";
+						push(@$bool, {file=> $file, type => "define", name => $name, description => $desc});
+					}
+				}
+                                if ($type !~ /define/)
+                                {
+                                        #print "Add input-------------------------------\n";
+                                        push(@$bool, {file=> $file, type => "input", name => $type, value => $name, description => $desc});
+                                }
+                        }
+			elsif ($line =~ /([a-zA-Z_]*)(\t+|\s+)([a-zA-Z0-9\:\/\"\.\% ]+)$/g)
 			{
-				my $type = $+{Type} == "define" ? "undef" : "define";
-				push(@options, {
-					file		=> $file,
-					type		=> $type,
-					name		=> $+{Name},
-					description 	=> $+{Description}
-				});
+				#print "----------Found in 1\n";
+				#print "1 - $1\n";
+				#print "3 - $3\n";
+				push(@$bool, {file=> $file, type => "input", name => $1, value => $3, description => $1});
 			}
-			else
-			{
-				push(@options, {
-					file		=> $file,
-					type		=> $+{Type},
-					name		=> $+{Name},
-					description	=> $+{Description}
-				});
-			}
+
 		}
-
+		if ($line =~ /#undef/)
+		{
+			#print $line . "\n";
+			if ($line =~ /([a-zA-Z]*)(\t+|\s+)(\w*)\t+(\W+)([a-zA-Z0-9_\- ]+)/g)
+			{
+				#print "1 - $1\n";
+				#print "3 - $3\n";
+				#print "5 - $5\n";
+				push(@$bool, {file=> $file, type => $1, name => $3, description => $5});
+				if ($1 !~ /undef/)
+				{
+					#print "to FIXE-------------------------------\n";
+					pop(@$bool);
+				}
+			}	
+		}
 	}
-	close $fh;
+	close (FILE);
 }
-closedir $dir;
+closedir(DIR);
 
-my @sorted = sort { $a->{name} cmp $b->{name} } @options;
+#print Dumper $bool;
+#foreach my $options ( @$bool ) {
+#	print "$options->{'name'}\t$options->{'description'}\n";
+#}
 
-print JSON->new->pretty->utf8->encode(\@sorted);
+print JSON->new->pretty->utf8->encode(\@$bool);
 
 exit;
