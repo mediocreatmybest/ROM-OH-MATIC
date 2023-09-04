@@ -76,9 +76,12 @@ RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 ONBUILD RUN apt-get update && apt-get -yq upgrade
 ONBUILD RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Allow to execute
+# Set as execute with +x
 RUN chmod +x /opt/rom-o-matic/start.sh
 RUN chmod +x /opt/rom-o-matic/update.sh
+
+# Allow iPXE submodule to be updated due to change in ownership with submodules
+RUN git config --global --add safe.directory /opt/rom-o-matic/ipxe
 
 #ENTRYPOINT ["/usr/bin/tail","-f","/var/log/apache2/access.log"]
 ENTRYPOINT ["/opt/rom-o-matic/start.sh"]
