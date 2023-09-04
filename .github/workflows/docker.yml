@@ -3,7 +3,7 @@ name: Workflow Docker
 on:
   push:
     branches:
-      - 'master'
+      - 'xbgmsharp_ipxe-buildweb'
 
 jobs:
   docker:
