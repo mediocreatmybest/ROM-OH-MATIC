@@ -40,7 +40,7 @@ ENV LC_ALL en_US.UTF-8
 # Set ENV
 ENV HOME /root
 ENV DEBIAN_FRONTEND noninteractive
-ENV GIT_SSL_VERIFY true
+ENV GIT_SSL_VERIFY false
 
 # Install SSH
 RUN apt-get install -y openssh-server

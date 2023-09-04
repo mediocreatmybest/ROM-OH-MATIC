@@ -13,8 +13,15 @@ echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
 # Upgrade system
 apt-get update && apt-get -yq dist-upgrade
 
-# install git if needed
+# install git
 apt -yq install git
+
+# check ssl state of git from ENV due to some frustrating proxy MITM / SSL Inspection
+# Only disable SSL verify if GIT_SSL_NO_VERIFY is set to false
+if [ "$GIT_SSL_VERIFY" = "false" ]; then
+    echo "git ssl verify is flagged to be disabled"
+    git config --global http.sslVerify false
+fi
 
 # clone this repository
 # git clone https://github.com/realslacker/rom-o-matic.git /opt/rom-o-matic
@@ -22,11 +29,7 @@ apt -yq install git
 git clone --recursive --branch 2204 https://github.com/mediocreatmybest/ROM-OH-MATIC.git /opt/rom-o-matic
 git -C /opt/rom-o-matic submodule init
 git -C /opt/rom-o-matic submodule update
-#rm -rf /var/www/html
-#ln -s /opt/rom-o-matic/public /var/www/html
-#ln -s /opt/rom-o-matic/scripts/parseheaders.pl /opt/rom-o-matic/ipxe/src/util/
 chown -R www-data:www-data /opt/rom-o-matic
-git config --global --add safe.directory /opt/rom-o-matic
 
 # Install basic compilation tools and dev libraries
 apt -yq install \
@@ -98,6 +101,7 @@ cat << EOF > /etc/apache2/mods-enabled/fcgid.conf
     </Files>
 </IfModule>
 EOF
+
 # Move symlink creation to the end of build process
 rm -rf /var/www/html
 ln -s /opt/rom-o-matic/public /var/www/html
