@@ -66,7 +66,7 @@ chown -R www-data:www-data \
     /var/cache/ipxe-build \
     /var/run/ipxe-build \
     /var/tmp/ipxe-build \
-    /opt/ipxe
+    /opt/rom-o-matic/ipxe
 
 # Install Apache with fast CGI and PHP module
 apt-get -yq install \
