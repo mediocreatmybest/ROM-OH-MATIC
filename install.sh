@@ -31,6 +31,9 @@ git -C /opt/rom-o-matic submodule init
 git -C /opt/rom-o-matic submodule update
 chown -R www-data:www-data /opt/rom-o-matic
 
+# Allow iPXE submodule to be updated due to change in ownership with submodules
+git config --global --add safe.directory /opt/rom-o-matic/ipxe
+
 # Install basic compilation tools and dev libraries
 apt -yq install \
     build-essential \

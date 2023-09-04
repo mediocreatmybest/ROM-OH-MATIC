@@ -76,9 +76,6 @@ RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 ONBUILD RUN apt-get update && apt-get -yq upgrade
 ONBUILD RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Allow iPXE submodule to be updated / need to fix this
-RUN git config --global --add safe.directory /opt/rom-o-matic/ipxe
-
 # Allow to execute
 RUN chmod +x /opt/rom-o-matic/start.sh
 RUN chmod +x /opt/rom-o-matic/update.sh
