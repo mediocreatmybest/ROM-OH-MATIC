@@ -3,7 +3,7 @@ name: Workflow Docker
 on:
   push:
     branches:
-      - 'master'
+      - '2204'
 
 jobs:
   docker:
@@ -27,5 +27,5 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
-          tags: mediocreatmybest/ipxe-buildweb_original:latest
+          tags: mediocreatmybest/ipxe-buildweb:latest
           

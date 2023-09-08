@@ -1,3 +1,3 @@
 #!/bin/bash
-/var/www/ipxe-buildweb/install.sh
+/opt/rom-o-matic/update.sh
 apachectl -DFOREGROUND

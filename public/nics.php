@@ -10,16 +10,20 @@
 #------------------------------------------------------------------------
 */
 
-$cache_file = "/tmp/ipxelistnics";
+$file_name = 'nics.json';
+
+$cache_path = dirname(__FILE__) . "/cache";
+$cache_file = "$cache_path/$file_name";
 $cache_life = '3600'; //caching time, in seconds, 1h
+
+$command = "/opt/rom-o-matic/ipxe/src/util/niclist.pl --format json --output \"$cache_file\" 2> /dev/null";
 
 $filemtime = @filemtime($cache_file);  // returns FALSE if file does not exist
 if (!$filemtime or (time() - $filemtime >= $cache_life))
 {
-	$outpout = exec("rm -f /tmp/ipxelistnics && cd /var/tmp/ipxe/src/ && /var/tmp/ipxe/src/util/niclist.pl --format json --columns ipxe_name,device_id,vendor_id 1>/tmp/ipxelistnics");
-	readfile("/tmp/ipxelistnics");
-} else {
-	readfile("/tmp/ipxelistnics");
+	exec($command, $output, $result);
 }
+header('Content-Type: application/json; charset=utf-8');
+readfile($cache_file);
 
 ?>
