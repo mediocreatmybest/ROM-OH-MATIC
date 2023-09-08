@@ -3,7 +3,7 @@ name: Workflow Docker
 on:
   push:
     branches:
-      - '2204'
+      - 'master'
 
 jobs:
   docker:
