@@ -24,15 +24,14 @@ if [ "$GIT_SSL_VERIFY" = "false" ]; then
 fi
 
 # clone this repository
-# git clone https://github.com/realslacker/rom-o-matic.git /opt/rom-o-matic
-# Test git clone of brach
-git clone --recursive --branch 2204 https://github.com/mediocreatmybest/ROM-OH-MATIC.git /opt/rom-o-matic
+git clone https://github.com/mediocreatmybest/ROM-OH-MATIC.git /opt/rom-o-matic
 git -C /opt/rom-o-matic submodule init
 git -C /opt/rom-o-matic submodule update
 chown -R www-data:www-data /opt/rom-o-matic
 
 # Allow iPXE submodule to be updated due to change in ownership with submodules
 git config --global --add safe.directory /opt/rom-o-matic/ipxe
+git config --global --add safe.directory /opt/rom-o-matic
 
 # Install basic compilation tools and dev libraries
 apt -yq install \
@@ -105,6 +104,6 @@ cat << EOF > /etc/apache2/mods-enabled/fcgid.conf
 </IfModule>
 EOF
 
-# Move symlink creation to the end of build process
+# Move symlink creation to the end of build/install process
 rm -rf /var/www/html
 ln -s /opt/rom-o-matic/public /var/www/html
