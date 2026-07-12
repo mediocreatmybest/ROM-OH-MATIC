@@ -3,29 +3,37 @@ name: Workflow Docker
 on:
   push:
     branches:
-      - 'master'
+      - master
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: mediocreatmybest/ipxe-buildweb
 
 jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
-      -
-        name: Checkout
+      - name: Checkout
         uses: actions/checkout@v4
+
       # https://github.com/marketplace/actions/docker-login
-      -
-        name: Login to DockerHub
-        uses: docker/login-action@v2
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       # https://github.com/marketplace/actions/build-and-push-docker-images
-      -
-        name: Build and push
-        uses: docker/build-push-action@v4
+      - name: Build and push
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64
           push: true
-          tags: mediocreatmybest/ipxe-buildweb:latest
-
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
