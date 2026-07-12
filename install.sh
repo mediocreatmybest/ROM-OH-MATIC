@@ -17,7 +17,7 @@ apt-get update && apt-get -yq dist-upgrade
 apt-get -yq install git
 
 # check ssl state of git from ENV due to systems with proxy MITM / SSL Inspection.
-# Only disable SSL verify if GIT_SSL_NO_VERIFY is set to false
+# Only disable SSL verify if GIT_SSL_VERIFY is set to false
 if [ "$GIT_SSL_VERIFY" = "false" ]; then
     echo "git ssl verify is flagged to be disabled"
     git config --global http.sslVerify false
@@ -37,7 +37,7 @@ git config --global --add safe.directory /opt/rom-o-matic
 apt-get -yq install \
     build-essential \
     iasl mtools perl python3 \
-    subversion uuid-dev liblzma-dev xz-utils mtools
+    subversion uuid-dev liblzma-dev xz-utils
 
 # Install CGI Perl dependencies
 apt-get -yq install \
