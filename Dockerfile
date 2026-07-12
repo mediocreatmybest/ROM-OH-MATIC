@@ -19,10 +19,9 @@
 
 # Pull base image.
 FROM ubuntu:latest
-LABEL Francois Lacroix <xbgmsharp@gmail.com>
+LABEL maintainer="Francois Lacroix <xbgmsharp@gmail.com>"
 
 # Setup system and install tools
-#RUN echo "initscripts hold" | dpkg --set-selections
 RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
 RUN echo 'alias ll="ls -lah --color=auto"' >> /etc/bash.bashrc
 
@@ -31,16 +30,14 @@ RUN apt-get update && apt-get -yq upgrade
 
 # Set locale
 RUN apt-get -qqy install locales
-#RUN locale-gen --purge en_US en_US.UTF-8
-#RUN dpkg-reconfigure locales
-RUN localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
-ENV LANG en_US.utf8
-ENV LC_ALL en_US.UTF-8
+ENV LANG=en_US.utf8
+ENV LC_ALL=en_US.UTF-8
+RUN locale-gen en_US.UTF-8
 
 # Set ENV
-ENV HOME /root
-ENV DEBIAN_FRONTEND noninteractive
-ENV GIT_SSL_VERIFY true
+ENV HOME=/root
+ENV DEBIAN_FRONTEND=noninteractive
+ENV GIT_SSL_VERIFY=true
 
 # Install SSH
 RUN apt-get install -y openssh-server
@@ -48,11 +45,10 @@ RUN sed -ri 's/UsePAM yes/#UsePAM yes/g' /etc/ssh/sshd_config
 RUN sed -ri 's/#UsePAM no/UsePAM no/g' /etc/ssh/sshd_config
 RUN sed 's/#PermitRootLogin yes/PermitRootLogin yes/' -i /etc/ssh/sshd_config
 RUN sed 's/PermitRootLogin without-password/PermitRootLogin yes/' -i /etc/ssh/sshd_config
-RUN mkdir /var/run/sshd
 RUN echo 'root:admin' | chpasswd
 
 # Add the install script in the directory.
-ADD install.sh /tmp/install.sh
+COPY install.sh /tmp/install.sh
 RUN chmod +x /tmp/install.sh
 
 # Install it all
@@ -60,7 +56,7 @@ RUN \
   bash /tmp/install.sh
 
 # Define environment variables
-ENV PORT 80
+ENV PORT=80
 
 # Define working directory.
 WORKDIR /var/www/ipxe-buildweb
