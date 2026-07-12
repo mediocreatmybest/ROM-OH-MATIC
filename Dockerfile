@@ -41,10 +41,11 @@ ENV GIT_SSL_VERIFY=true
 
 # Install SSH
 RUN apt-get install -y openssh-server
-RUN sed -ri 's/UsePAM yes/#UsePAM yes/g' /etc/ssh/sshd_config
-RUN sed -ri 's/#UsePAM no/UsePAM no/g' /etc/ssh/sshd_config
-RUN sed 's/#PermitRootLogin yes/PermitRootLogin yes/' -i /etc/ssh/sshd_config
-RUN sed 's/PermitRootLogin without-password/PermitRootLogin yes/' -i /etc/ssh/sshd_config
+# Enable SSHD
+RUN mkdir -p /run/sshd
+# Alow root login and password authentication
+RUN echo "PermitRootLogin yes" > /etc/ssh/sshd_config.d/01-ipxe-web-ssh.conf
+RUN echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config.d/01-ipxe-web-ssh.conf
 RUN echo 'root:admin' | chpasswd
 
 # Add the install script in the directory.
@@ -79,5 +80,5 @@ RUN chmod +x /opt/rom-o-matic/update.sh
 # Allow iPXE submodule to be updated due to change in ownership with submodules
 RUN git config --global --add safe.directory /opt/rom-o-matic/ipxe
 
-#ENTRYPOINT ["/usr/bin/tail","-f","/var/log/apache2/access.log"]
+# Entry point to start the container and the additional services.
 ENTRYPOINT ["/opt/rom-o-matic/start.sh"]
