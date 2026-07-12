@@ -13,10 +13,10 @@ echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
 # Upgrade system
 apt-get update && apt-get -yq dist-upgrade
 
-# install git
-apt -yq install git
+# install git client
+apt-get -yq install git
 
-# check ssl state of git from ENV due to some frustrating proxy MITM / SSL Inspection
+# check ssl state of git from ENV due to systems with proxy MITM / SSL Inspection.
 # Only disable SSL verify if GIT_SSL_NO_VERIFY is set to false
 if [ "$GIT_SSL_VERIFY" = "false" ]; then
     echo "git ssl verify is flagged to be disabled"
@@ -34,10 +34,10 @@ git config --global --add safe.directory /opt/rom-o-matic/ipxe
 git config --global --add safe.directory /opt/rom-o-matic
 
 # Install basic compilation tools and dev libraries
-apt -yq install \
+apt-get -yq install \
     build-essential \
-    iasl lzma-dev mtools perl python3 \
-    subversion uuid-dev liblzma-dev mtools
+    iasl mtools perl python3 \
+    subversion uuid-dev liblzma-dev xz-utils mtools
 
 # Install CGI Perl dependencies
 apt-get -yq install \
@@ -71,7 +71,7 @@ chown -R www-data:www-data \
 apt-get -yq install \
     libapache2-mod-fcgid \
     libapache2-mod-php
-a2enmod fcgid php8.1
+a2enmod fcgid php8.5
 
 # Install JSON library Perl
 apt-get -yq install \
