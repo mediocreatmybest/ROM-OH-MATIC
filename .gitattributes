@@ -1,0 +1,14 @@
+# Force LF line endings for everything that ends up inside a Linux container
+# or is parsed by tools that choke on CRLF (shell heredocs, Dockerfile, YAML).
+# Without this, a Windows checkout with core.autocrlf=true silently rewrites
+# these to CRLF and breaks the Docker build (stray $'\r' syntax errors and
+# heredocs that never find their closing delimiter).
+* text=auto eol=lf
+
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# The iPXE submodule manages its own line endings; don't touch it here.
+ipxe/** -text

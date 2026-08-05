@@ -14,111 +14,131 @@ The user interface, is using HTML, CSS as well as Javascript (jQuery) and a suit
 All GUI options (git version/nics list/compile options) are generated dynamicaly using PHP.
 The build.fcgi script is written in Perl and was wrote by Michael Brown.
 
-## Using Official DockerHub image
+[![Docker build](https://github.com/mediocreatmybest/ROM-OH-MATIC/actions/workflows/docker.yml/badge.svg?branch=master)](https://github.com/mediocreatmybest/ROM-OH-MATIC/actions/workflows/docker.yml)
+[![Docker pulls](https://img.shields.io/docker/pulls/mediocreatmybest/ipxe-buildweb)](https://hub.docker.com/r/mediocreatmybest/ipxe-buildweb)
+[![Docker image size](https://img.shields.io/docker/image-size/mediocreatmybest/ipxe-buildweb/latest)](https://hub.docker.com/r/mediocreatmybest/ipxe-buildweb/tags)
 
-[![dockeri.co](https://dockeri.co/image/xbgmsharp/ipxe-buildweb)](https://hub.docker.com/r/xbgmsharp/ipxe-buildweb)
+> [!NOTE]
+> This is a maintenance fork of [xbgmsharp/ipxe-buildweb](https://github.com/xbgmsharp/ipxe-buildweb), kept moving while the upstream repository is quiet. The intention is to preserve a working build, not to replace the original project. If the upstream becomes active again, the repository will be archived, rather than maintaining two versions for the fun of it.
 
-* Supported tags:
+Named after the great ROM-O-MATIC website, this web interface simplifies building iPXE binaries, allowing users to select relevant iPXE build options, provide an embedded script, and generate the required output without building it manually from the command line.
 
-`latest` - Latest ([Dockerfile](https://github.com/xbgmsharp/ipxe-buildweb/blob/master/Dockerfile))
+This repository is not part of, or endorsed by, the official [iPXE project](https://ipxe.org/), I don't have the neccessary skills for that!
 
-* Supported architectures: x86-64
+## Current status
 
-* Run ipxe-buildweb
+The Docker image is automatically built and published from `master`. Automated container startup, HTTP, and application-level iPXE generation tests will hopefully be added.
 
-After a successful [Docker installation](https://docs.docker.com/engine/installation/) you just need to execute the following command in the shell:
+| Capability                    | Current status                             |
+| ----------------------------- | ------------------------------------------ |
+| Docker image build            | Automated on pushes to `master`            |
+| Docker image publication      | Automated as part of the current build job |
+| Container startup test        | TBD                                        |
+| HTTP response test            | TBD                                        |
+| iPXE artefact generation test | TBD                                        |
+| Published platform            | `linux/amd64`                              |
+| Current container base        | Ubuntu 24.04 LTS                           |
 
-```bash
-docker pull xbgmsharp/ipxe-buildweb
-docker run  -d \
-    --publish 8080:80 \
-    --publish 22:22 \
-    --name ipxe-buildweb \
-    xbgmsharp/ipxe-buildweb
+A green build badge currently means that the image built and was published. It does not yet prove that the container started or is able to generate an iPXE artefact, but obviously it _should_.
+
+## Docker image
+
+The maintained image is published as:
+
+```text
+mediocreatmybest/ipxe-buildweb
 ```
 
-## Test using Docker
+Current tags are:
 
-* Install Docker
-[Install documentation of Docker](https://docs.docker.com/engine/installation/)
+- `latest`: the most recent image published from `master`.
+- `<full-git-commit-sha>`: the repository revision used to trigger the image build.
 
-```bash
-wget http://get.docker.io/ -O - | sh
-```
+The published image currently targets `linux/amd64` only.
 
-* Build the images
+## Run with Docker
 
-The following command build the build directly from the github repository.
-
-The build process might take some time a while as it download the origin Ubuntu LTS docker image.
+After [installing Docker](https://docs.docker.com/engine/install/), pull and run the maintained image:
 
 ```bash
-docker build --rm=true --no-cache=true -t xbgmsharp/ipxe-buildweb github.com/xbgmsharp/ipxe-buildweb.git
+docker pull mediocreatmybest/ipxe-buildweb:latest
+docker run --detach \
+  --publish 8080:80 \
+  --name ipxe-buildweb   \
+  mediocreatmybest/ipxe-buildweb:latest
 ```
 
-Alternatively, you can build the image localy after cloning the repository.
+Open <http://localhost:8080> in a browser.
+
+Review the container state and logs with:
 
 ```bash
-docker build --rm=true --no-cache=true -t xbgmsharp/ipxe-buildweb .
+docker ps --filter name=ipxe-buildweb
+docker logs ipxe-buildweb
 ```
 
-* Run the container
-
-Run as a detach container
+For an interactive debugging shell in the running container:
 
 ```bash
-docker run -d -p 22:22 -p 8080:80 -t xbgmsharp/ipxe-buildweb
+docker exec -it ipxe-buildweb /bin/bash
 ```
 
-Or run the container with an attach shell
+Or start a temporary shell without launching the normal entrypoint:
 
 ```bash
-docker run -i --rm -p 22:22 -p 8080:80 -t xbgmsharp/ipxe-buildweb /bin/bash
+docker run --rm -it \
+  --entrypoint /bin/bash \
+  mediocreatmybest/ipxe-buildweb:latest
 ```
 
-* Check the IP
+SSH is off by default -- no hard-coded password, no default root access, and `sshd` never starts unless you explicitly ask for it. `docker exec` above is the normal way to get a shell. If you genuinely need SSH:
 
 ```bash
-docker ps -a
-docker inspect CONTAINER_ID | grep IPA
+docker run --detach \
+  --publish 8080:80 \
+  --publish 2222:22 \
+  --name ipxe-buildweb \
+  --env ENABLE_SSH=true \
+  --env SSH_AUTHORIZED_KEY="ssh-ed25519 AAAA... you@example.com" \
+  mediocreatmybest/ipxe-buildweb:latest
 ```
 
-Or both command in one
+`SSH_AUTHORIZED_KEY` (a public key) is preferred and gives key-only root login. `SSH_ROOT_PASSWORD` is available as a fallback if you'd rather use a password, but prefer the key where you can. Setting `ENABLE_SSH=true` without either one refuses to start `sshd` rather than falling back to anything insecure.
+
+## Additional
+
+The docker image contains the repository and iPXE source baseline. By default the container runs frozen -- exactly the revision baked in at build time, no network access required to start. Set `UPDATE_ON_START=true` to have it `git pull` on startup instead; a failed or unreachable update is logged and falls back to the existing baseline rather than breaking the container:
 
 ```bash
-docker ps -a | grep ipxe-buildweb | awk '{print $1}' | xargs docker inspect | grep IPAddress
+docker run --detach \
+  --publish 8080:80 \
+  --name ipxe-buildweb \
+  --env UPDATE_ON_START=true \
+  mediocreatmybest/ipxe-buildweb:latest
 ```
 
-Or all in one with the ssh connection
+Git TLS certificate verification is enabled by default. An explicit insecure compatibility option exists for controlled environments with broken proxy, MITM behaviour and/or certificate-inspection trust, in part, due to over zealous security muppets and a misguided view of the world, but installing the correct CA certificate is obviously preferred. The insecure option is intentionally not part of the normal quick start, but can be enabled within the ENV:
 
 ```bash
-ssh $(docker ps -a | grep ipxe-buildweb | awk '{print $1}' | xargs docker inspect | grep IPAddress | awk '{print $2}' | tr -d '"' | tr -d ',' )
+docker run --detach \
+  --publish 8080:80 \
+  --name ipxe-buildweb \
+  --env GIT_SSL_VERIFY=false \
+  mediocreatmybest/ipxe-buildweb:latest
 ```
 
-* Login in the container via SSH
+Only reach for this on a network you already trust to be doing the interception (e.g. a corporate proxy you can't get a CA cert out of). It doesn't disable every TLS check in the image, just Git's.
 
-User is root and password is admin.
+## Support and upstream projects
 
-```bash
-ssh root@172.17.0.x
-```
+- Report problems with this maintenance fork through this repository's [issue tracker](https://github.com/mediocreatmybest/ROM-OH-MATIC/issues). I'll do my best to try and fix the build and/or container issues. _(Pull Requests WELCOME, please!!)_
+- Refer to [xbgmsharp/ipxe-buildweb](https://github.com/xbgmsharp/ipxe-buildweb) for the original project and its history.
+- Refer to [ipxe.org](https://ipxe.org/) and the [official iPXE repository](https://github.com/ipxe/ipxe) for questions and answers about the great iPXE project itself.
 
-* Review logs
+## Contributing
 
-```bash
-docker logs CONTAINER_ID
-```
+Any fixes or pull requests are welcome. Please keep changes small enough for me and test independently.
 
-* Enjoy!
+## Licence
 
-## Support
-
-To get support, please create new [issue](https://github.com/xbgmsharp/ipxe-buildweb/issues)
-
-## Contribution
-
-I'm happy to accept Pull Requests!
-
-## License
-
-This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [LICENSE](LICENSE).
