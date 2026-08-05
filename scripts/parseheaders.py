@@ -108,6 +108,15 @@ def parse_file(path, filename):
         commented_out = bool(match.group('commented'))
         directive = match.group('directive')
         name = match.group('name')
+
+        # Skip standard C header include-guards: `#ifndef NAME` immediately
+        # followed by `#define NAME` is boilerplate, not a real option.
+        if (directive == 'define' and not commented_out and i > 0
+                and lines[i - 1].strip() == '#ifndef ' + name):
+            pending_comment = ''
+            i += 1
+            continue
+
         rest = match.group('rest').strip()
 
         comment_index = rest.find('/*')
