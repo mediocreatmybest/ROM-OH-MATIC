@@ -170,11 +170,17 @@ onReady(function() {
                 subtitle.TLS = 'TLS configuration:';
                 subtitle.OCSP = 'OCSP Configuration:'
 
-                /* <label> wrapping a text <input>, then <br/><br/>. Shared by
-                 * the BANNER/hex-value "define" overrides (input value comes
-                 * from the description) and the "input" type (input value
-                 * comes from .value, but the trailing description text is
-                 * still sourced from .description, same as the original). */
+                /* <label> wrapping a text <input>, then the description on
+                 * its own line, then <br/><br/>. Shared by the BANNER/hex-
+                 * value "define" overrides (input value comes from the
+                 * description) and the "input" type (input value comes from
+                 * .value, but the trailing description text is still
+                 * sourced from .description, same as the original). The
+                 * description is a separate block element rather than
+                 * running on immediately after the input -- some iPXE
+                 * header comments (e.g. PRODUCT_ERROR_URI) are long
+                 * paragraphs, which read as a wall of text jammed against a
+                 * 6-character-wide box when left inline. */
                 function makeTextOptionLabel(name, fieldName, size, fieldValue, descriptionText, trailingPrefix) {
                         var desc = (name === descriptionText) ? '' : descriptionText;
                         var label = document.createElement('label');
@@ -187,15 +193,23 @@ onReady(function() {
                         input.value = fieldValue;
                         input.name = fieldName;
                         label.appendChild(input);
-                        label.appendChild(document.createTextNode(' ' + trailingPrefix + desc));
+                        var descText = trailingPrefix + desc;
+                        if (descText) {
+                                var descEl = document.createElement('div');
+                                descEl.className = 'option-description';
+                                descEl.textContent = descText;
+                                label.appendChild(descEl);
+                        }
                         label.appendChild(document.createElement('br'));
                         label.appendChild(document.createElement('br'));
                         return label;
                 }
 
                 /* <label> wrapping a checkbox <input> and a help link, then
-                 * <br/><br/>. Shared by "define" (checked) and "undef"
-                 * (unchecked) boolean options. */
+                 * the description on its own line, then <br/><br/>. Shared
+                 * by "define" (checked) and "undef" (unchecked) boolean
+                 * options -- same rationale as makeTextOptionLabel() above
+                 * for putting the description on its own line. */
                 function makeCheckboxOptionLabel(name, fieldName, checked, description) {
                         var label = document.createElement('label');
                         label.setAttribute('for', name);
@@ -211,7 +225,12 @@ onReady(function() {
                         link.target = '_blank';
                         link.textContent = name;
                         label.appendChild(link);
-                        label.appendChild(document.createTextNode(', ' + description));
+                        if (description) {
+                                var descEl = document.createElement('div');
+                                descEl.className = 'option-description';
+                                descEl.textContent = description;
+                                label.appendChild(descEl);
+                        }
                         label.appendChild(document.createElement('br'));
                         label.appendChild(document.createElement('br'));
                         return label;
