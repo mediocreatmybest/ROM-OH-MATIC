@@ -23,10 +23,14 @@ if [ "$GIT_SSL_VERIFY" = "false" ]; then
     git config --global http.sslVerify false
 fi
 
-# clone this repository
+# clone this repository at the revision under test. Defaults to master so a
+# plain `docker build .` behaves as before; CI passes --build-arg
+# GIT_REF=<commit-or-branch> so a pull-request build actually tests the PR's
+# content instead of silently testing whatever is currently on master.
+GIT_REF="${GIT_REF:-master}"
 git clone https://github.com/mediocreatmybest/ROM-OH-MATIC.git /opt/rom-o-matic
-git -C /opt/rom-o-matic submodule init
-git -C /opt/rom-o-matic submodule update
+git -C /opt/rom-o-matic checkout "$GIT_REF"
+git -C /opt/rom-o-matic submodule update --init --recursive
 chown -R www-data:www-data /opt/rom-o-matic
 
 # Allow iPXE submodule to be updated due to change in ownership with submodules
@@ -49,14 +53,18 @@ apt-get -yq install \
     libcgi-pm-perl
 
 #  Prepare iPXE directory
+# Note: build.fcgi's cache root and lockfile (see build.ini) live under
+# /var/cache/ipxe-build and /var/run/ipxe-build; its own scratch/worktree
+# directories use the system tmpdir (plain /tmp), not /var/tmp. An earlier
+# /var/tmp/ipxe-build here was dead weight -- created, then immediately
+# wiped by the later `rm -rf /tmp/* /var/tmp/*` cleanup step anyway, and
+# nothing ever read from it.
 mkdir -p \
     /var/cache/ipxe-build \
-    /var/run/ipxe-build \
-    /var/tmp/ipxe-build
+    /var/run/ipxe-build
 rm -rf \
     /var/cache/ipxe-build/* \
-    /var/run/ipxe-build/* \
-    /var/tmp/ipxe-build/*
+    /var/run/ipxe-build/*
 
 # Prepare the git iPXE repository
 touch /var/run/ipxe-build/ipxe-build-cache.lock
@@ -64,7 +72,6 @@ chown -R www-data:www-data \
     /var/run/ipxe-build/ipxe-build-cache.lock \
     /var/cache/ipxe-build \
     /var/run/ipxe-build \
-    /var/tmp/ipxe-build \
     /opt/rom-o-matic/ipxe
 
 # Install Apache with fast CGI and PHP module

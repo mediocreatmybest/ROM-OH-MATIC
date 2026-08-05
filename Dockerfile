@@ -18,7 +18,12 @@
 # VERSION 0.0.1
 
 # Pull base image.
-FROM ubuntu:latest
+# Pinned to a specific LTS release rather than :latest -- ubuntu:latest can
+# resolve to a non-LTS interim release with an incomplete/broken package set
+# (see ARCHITECTURE.md's M0 baseline evidence), which isn't something a
+# Docker build should be at the mercy of. Revisit under M8.1 once the
+# project has an intentional, documented base-image policy.
+FROM ubuntu:24.04
 LABEL maintainer="Francois Lacroix <xbgmsharp@gmail.com>"
 
 # Setup system and install tools
@@ -38,15 +43,26 @@ RUN locale-gen en_US.UTF-8
 ENV HOME=/root
 ENV DEBIAN_FRONTEND=noninteractive
 ENV GIT_SSL_VERIFY=true
+# Frozen by default: a SHA/version-tagged image should run the exact
+# revision baked in at build time. Set to "true" to pull updates on every
+# container start instead (see ARCHITECTURE.md ADR-004).
+ENV UPDATE_ON_START=false
+# SSH is off by default -- no hard-coded password, no default root access.
+# Set to "true" plus SSH_AUTHORIZED_KEY (preferred) or SSH_ROOT_PASSWORD to
+# enable it at runtime; see start.sh. Normal debugging should use
+# `docker exec` instead.
+ENV ENABLE_SSH=false
 
-# Install SSH
+# Install SSH. The server is always present (keeps this a single image
+# rather than a separate SSH-enabled variant), but start.sh only launches
+# and configures it when ENABLE_SSH is explicitly turned on.
 RUN apt-get install -y openssh-server
-# Enable SSHD
 RUN mkdir -p /run/sshd
-# Alow root login and password authentication
-RUN echo "PermitRootLogin yes" > /etc/ssh/sshd_config.d/01-ipxe-web-ssh.conf
-RUN echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config.d/01-ipxe-web-ssh.conf
-RUN echo 'root:admin' | chpasswd
+
+# Revision to check out inside the image. Defaults to master; CI overrides
+# this with the actual commit/PR being built so the image reflects the code
+# under test rather than always cloning master (see install.sh).
+ARG GIT_REF=master
 
 # Add the install script in the directory.
 COPY install.sh /tmp/install.sh
@@ -79,6 +95,12 @@ RUN chmod +x /opt/rom-o-matic/update.sh
 
 # Allow iPXE submodule to be updated due to change in ownership with submodules
 RUN git config --global --add safe.directory /opt/rom-o-matic/ipxe
+
+# Reflect whether the web service is actually responding, not just whether
+# the container process is alive. wget is already present in the base
+# image; curl is not.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD wget -q -O /dev/null http://localhost:80/ || exit 1
 
 # Entry point to start the container and the additional services.
 ENTRYPOINT ["/opt/rom-o-matic/start.sh"]

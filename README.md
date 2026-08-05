@@ -37,7 +37,7 @@ The Docker image is automatically built and published from `master`. Automated c
 | HTTP response test            | TBD                                        |
 | iPXE artefact generation test | TBD                                        |
 | Published platform            | `linux/amd64`                              |
-| Current container base        | Ubuntu                                     |
+| Current container base        | Ubuntu 24.04 LTS                           |
 
 A green build badge currently means that the image built and was published. It does not yet prove that the container started or is able to generate an iPXE artefact, but obviously it _should_.
 
@@ -91,13 +91,43 @@ docker run --rm -it \
   mediocreatmybest/ipxe-buildweb:latest
 ```
 
-The current image still contains a legacy SSH service and password-based root access. Port `22` is deliberately not published in the example above, but can be added to the `docker run` command if needed.
+SSH is off by default -- no hard-coded password, no default root access, and `sshd` never starts unless you explicitly ask for it. `docker exec` above is the normal way to get a shell. If you genuinely need SSH:
+
+```bash
+docker run --detach \
+  --publish 8080:80 \
+  --publish 2222:22 \
+  --name ipxe-buildweb \
+  --env ENABLE_SSH=true \
+  --env SSH_AUTHORIZED_KEY="ssh-ed25519 AAAA... you@example.com" \
+  mediocreatmybest/ipxe-buildweb:latest
+```
+
+`SSH_AUTHORIZED_KEY` (a public key) is preferred and gives key-only root login. `SSH_ROOT_PASSWORD` is available as a fallback if you'd rather use a password, but prefer the key where you can. Setting `ENABLE_SSH=true` without either one refuses to start `sshd` rather than falling back to anything insecure.
 
 ## Additional
 
-The docker image contains the repository and iPXE source baseline. The current container also attempts a Git update when it starts; an explicit frozen mode is planned so versioned images can run without changing their included source.
+The docker image contains the repository and iPXE source baseline. By default the container runs frozen -- exactly the revision baked in at build time, no network access required to start. Set `UPDATE_ON_START=true` to have it `git pull` on startup instead; a failed or unreachable update is logged and falls back to the existing baseline rather than breaking the container:
 
-Git TLS certificate verification is enabled by default. An explicit insecure compatibility option exists for controlled environments with broken proxy, MITM behaviour and/or certificate-inspection trust, in part, due to over zealous security muppets and a misguided view of the world, but installing the correct CA certificate is obviously preferred. The insecure option is intentionally not part of the normal quick start, but can be enabled within the ENV.
+```bash
+docker run --detach \
+  --publish 8080:80 \
+  --name ipxe-buildweb \
+  --env UPDATE_ON_START=true \
+  mediocreatmybest/ipxe-buildweb:latest
+```
+
+Git TLS certificate verification is enabled by default. An explicit insecure compatibility option exists for controlled environments with broken proxy, MITM behaviour and/or certificate-inspection trust, in part, due to over zealous security muppets and a misguided view of the world, but installing the correct CA certificate is obviously preferred. The insecure option is intentionally not part of the normal quick start, but can be enabled within the ENV:
+
+```bash
+docker run --detach \
+  --publish 8080:80 \
+  --name ipxe-buildweb \
+  --env GIT_SSL_VERIFY=false \
+  mediocreatmybest/ipxe-buildweb:latest
+```
+
+Only reach for this on a network you already trust to be doing the interception (e.g. a corporate proxy you can't get a CA cert out of). It doesn't disable every TLS check in the image, just Git's.
 
 ## Support and upstream projects
 
