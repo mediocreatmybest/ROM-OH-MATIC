@@ -89,9 +89,12 @@ RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 ONBUILD RUN apt-get update && apt-get -yq upgrade
 ONBUILD RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Set as execute with +x
+# Set as execute with +x. options.php execs parseheaders.py directly, so it
+# needs the bit too -- don't rely on the mode surviving a checkout, since a
+# Windows clone with core.fileMode=false won't carry it.
 RUN chmod +x /opt/rom-o-matic/start.sh
 RUN chmod +x /opt/rom-o-matic/update.sh
+RUN chmod +x /opt/rom-o-matic/scripts/parseheaders.py
 
 # Allow iPXE submodule to be updated due to change in ownership with submodules
 RUN git config --global --add safe.directory /opt/rom-o-matic/ipxe

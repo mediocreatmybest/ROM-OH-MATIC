@@ -16,7 +16,11 @@ $cache_path = dirname(__FILE__) . "/cache";
 $cache_file = "$cache_path/$file_name";
 $cache_life = '3600'; //caching time, in seconds, 1h
 
-$command = "/opt/rom-o-matic/ipxe/src/util/niclist.pl --format json --output \"$cache_file\" 2> /dev/null";
+// niclist.pl scans for drivers relative to the current directory, so it has
+// to be run from within the iPXE source tree -- called from anywhere else it
+// quietly returns an empty list rather than failing, which is how the NIC
+// dropdown ended up empty.
+$command = "cd /opt/rom-o-matic/ipxe/src && ./util/niclist.pl --format json --output \"$cache_file\" 2> /dev/null";
 
 $filemtime = @filemtime($cache_file);  // returns FALSE if file does not exist
 if (!$filemtime or (time() - $filemtime >= $cache_life))
