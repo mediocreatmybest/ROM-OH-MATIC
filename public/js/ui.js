@@ -7,39 +7,138 @@
  * License: GNU General Public License version 3 or later; see LICENSE.txt
  * ================================================================================
  */
-$(document).ready(function() {
+
+/* $(document).ready() equivalent -- runs fn immediately if the DOM is
+ * already parsed (e.g. this script were ever loaded with `defer`), otherwise
+ * waits for DOMContentLoaded. */
+function onReady(fn) {
+        if (document.readyState !== 'loading') {
+                fn();
+        } else {
+                document.addEventListener('DOMContentLoaded', fn);
+        }
+}
+
+onReady(function() {
 
         var roms = []; /* Global Object for roms ID validation */
 
-        $.getJSON("gitversion.php", null, function(data) {
-                //alert(data[0]);
-                var git = '<p><h2 class="wizard-header">Generating iPXE build image version ' + data[0] + '</h2></p>';
-                $("#gitabbrev").html(git);
-                var options = "<option value='master' selected>master</option>";
-                for (var i = 0; i < data.length; i++) {
-                        //alert(data[i]);
-                        options += '<option value="' + data[i] + '">' + data[i] + '</option>';
+        /* Build an <option>, safely -- via textContent/property assignment
+         * rather than string concatenation, so a value containing HTML
+         * special characters (e.g. an iPXE header comment with a stray "<"
+         * or "&") displays as literal text instead of risking broken or
+         * injected markup. */
+        function makeOption(value, text, selected) {
+                var opt = document.createElement('option');
+                opt.value = value;
+                opt.textContent = text;
+                if (selected) { opt.selected = true; }
+                return opt;
+        }
+
+        /* Shared by the initial gitversion.php load and the #gitrevision
+         * change handler below, so both build the header the same, safe
+         * way. */
+        function renderGitAbbrevHeader(version) {
+                var p = document.createElement('p');
+                var h2 = document.createElement('h2');
+                h2.className = 'wizard-header';
+                h2.textContent = 'Generating iPXE build image version ' + version;
+                p.appendChild(h2);
+                document.getElementById('gitabbrev').replaceChildren(p);
+        }
+
+        /* Shared loading/error status line for the three build-data
+         * fetches below, separate from #gitrevision/#nics/#options
+         * themselves -- loadcfg() polls those three elements for non-empty
+         * content to know the wizard is ready, so writing loading text
+         * into them directly would make it proceed before the real data
+         * arrives. */
+        var statusEl = document.getElementById('fetch-status');
+        var pendingFetches = 3;
+        var fetchErrors = [];
+        if (statusEl) {
+                statusEl.textContent = 'Loading build options...';
+                statusEl.style.display = '';
+                statusEl.classList.remove('error');
+        }
+        function fetchSettled(ok, detail) {
+                pendingFetches -= 1;
+                if (!ok) { fetchErrors.push(detail); }
+                if (pendingFetches > 0 || !statusEl) { return; }
+                if (fetchErrors.length === 0) {
+                        statusEl.style.display = 'none';
+                } else {
+                        statusEl.textContent = 'Some build data failed to load: ' + fetchErrors.join('; ') + '. Try reloading the page.';
+                        statusEl.classList.add('error');
                 }
-                $("#gitrevision").html(options);
+        }
+
+        /* Fetch JSON with a bounded timeout, shape validation, and a
+         * console + on-page error on failure, instead of failing silently. */
+        function fetchJSON(url, validate, onSuccess) {
+                var controller = new AbortController();
+                var timedOut = false;
+                var timeoutId = setTimeout(function() {
+                        timedOut = true;
+                        controller.abort();
+                }, 15000);
+                fetch(url, { signal: controller.signal, headers: { 'Accept': 'application/json' } })
+                        .then(function(response) {
+                                if (!response.ok) { throw new Error('HTTP ' + response.status); }
+                                return response.json();
+                        })
+                        .then(function(data) {
+                                clearTimeout(timeoutId);
+                                if (!validate(data)) {
+                                        console.error('Unexpected response shape from ' + url, data);
+                                        fetchSettled(false, url + ' returned an unexpected response');
+                                        return;
+                                }
+                                onSuccess(data);
+                                fetchSettled(true);
+                        })
+                        .catch(function(err) {
+                                clearTimeout(timeoutId);
+                                console.error('Request failed: ' + url + ' (' + (err && err.message ? err.message : err) + ')');
+                                fetchSettled(false, url + ' ' + (timedOut ? 'timed out' : 'failed to load'));
+                        });
+        }
+
+        fetchJSON("gitversion.php", function(data) {
+                return Array.isArray(data) && data.every(function(rev) { return typeof rev === 'string'; });
+        }, function(data) {
+                renderGitAbbrevHeader(data[0] || '(none)');
+
+                var revisionOptions = document.createDocumentFragment();
+                revisionOptions.appendChild(makeOption('master', 'master', true));
+                for (var i = 0; i < data.length; i++) {
+                        revisionOptions.appendChild(makeOption(data[i], data[i]));
+                }
+                document.getElementById('gitrevision').replaceChildren(revisionOptions);
         })
 
-        $.getJSON("nics.php", null, function(listnics) {
-                //alert(listnics.length);
-                var options = '<option value="all" selected>all-drivers</option>\n<option value="undionly">undionly</option>\n<option value="undi">undi</option>';
+        fetchJSON("nics.php", function(data) {
+                return Array.isArray(data) && data.every(function(nic) { return nic && typeof nic.ipxe_name === 'string'; });
+        }, function(listnics) {
+                var nicOptions = document.createDocumentFragment();
+                nicOptions.appendChild(makeOption('all', 'all-drivers', true));
+                nicOptions.appendChild(makeOption('undionly', 'undionly'));
+                nicOptions.appendChild(makeOption('undi', 'undi'));
                 for (var i = 0; i < listnics.length; i++) {
-                        //alert(listnics[i].device_name);
-                        //alert(listnics[i].ipxe_name);
-                        options += '<option value="' + listnics[i].ipxe_name + '">' + listnics[i].ipxe_name + '</option>';
+                        nicOptions.appendChild(makeOption(listnics[i].ipxe_name, listnics[i].ipxe_name));
                         if (listnics[i].device_id != null && listnics[i].vendor_id != null) {
                                 roms.push({device_id: listnics[i].device_id, vendor_id: listnics[i].vendor_id});
                         }
                 }
-                $("#nics").html(options);
+                document.getElementById('nics').replaceChildren(nicOptions);
         })
 
-        $.getJSON("options.php", null, function(custom) {
-                //alert(custom.length);
-
+        fetchJSON("options.php", function(data) {
+                return Array.isArray(data) && data.every(function(opt) {
+                        return opt && typeof opt.name === 'string' && typeof opt.type === 'string' && typeof opt.file === 'string';
+                });
+        }, function(custom) {
                 // List of subtitle of options
                 var subtitle = new Object;
                 subtitle._CMD = 'Command-line commands to include:';
@@ -71,291 +170,358 @@ $(document).ready(function() {
                 subtitle.TLS = 'TLS configuration:';
                 subtitle.OCSP = 'OCSP Configuration:'
 
-                var listoptions = '';
+                /* <label> wrapping a text <input>, then <br/><br/>. Shared by
+                 * the BANNER/hex-value "define" overrides (input value comes
+                 * from the description) and the "input" type (input value
+                 * comes from .value, but the trailing description text is
+                 * still sourced from .description, same as the original). */
+                function makeTextOptionLabel(name, fieldName, size, fieldValue, descriptionText, trailingPrefix) {
+                        var desc = (name === descriptionText) ? '' : descriptionText;
+                        var label = document.createElement('label');
+                        label.setAttribute('for', name);
+                        label.appendChild(document.createTextNode(name + ': '));
+                        var input = document.createElement('input');
+                        input.type = 'text';
+                        input.size = size;
+                        input.placeholder = fieldValue;
+                        input.value = fieldValue;
+                        input.name = fieldName;
+                        label.appendChild(input);
+                        label.appendChild(document.createTextNode(' ' + trailingPrefix + desc));
+                        label.appendChild(document.createElement('br'));
+                        label.appendChild(document.createElement('br'));
+                        return label;
+                }
+
+                /* <label> wrapping a checkbox <input> and a help link, then
+                 * <br/><br/>. Shared by "define" (checked) and "undef"
+                 * (unchecked) boolean options. */
+                function makeCheckboxOptionLabel(name, fieldName, checked, description) {
+                        var label = document.createElement('label');
+                        label.setAttribute('for', name);
+                        var input = document.createElement('input');
+                        input.type = 'checkbox';
+                        input.value = checked ? '1' : '0';
+                        input.name = fieldName;
+                        input.checked = checked;
+                        label.appendChild(input);
+                        var link = document.createElement('a');
+                        link.className = 'help_buildcfg';
+                        link.href = 'http://www.ipxe.org/buildcfg/' + name;
+                        link.target = '_blank';
+                        link.textContent = name;
+                        label.appendChild(link);
+                        label.appendChild(document.createTextNode(', ' + description));
+                        label.appendChild(document.createElement('br'));
+                        label.appendChild(document.createElement('br'));
+                        return label;
+                }
+
+                var listoptions = document.createDocumentFragment();
                 var previous;
-                var desc;
                 for (var i = 0; i < custom.length; i++) {
-                        //alert(custom[i].name);
-                        //alert(custom[i].description);
                         for (var y in subtitle)
                         {
                                 var regexp = new RegExp(y);
                                 var match = regexp.exec(custom[i].name);
-                                //if (custom[i].name.indexOf("_CMD", custom[i].name.length - 4) !== -1)
-                                /*if (custom[i].name === "PXE_CMD")
-                                {
-                                        console.log('['+ y + '] vs [' + custom[i].name + '] match:' + match + ' && previous:' + previous);
-                                }*/
                                 if (previous == y && match == y)
                                 {
                                         break;
                                 }
                                 else if (match != null && previous != y)
                                 {
-                                        listoptions += '<h3 class="wizard-option">'+ subtitle[y] + '</h3>'
+                                        var h3 = document.createElement('h3');
+                                        h3.className = 'wizard-option';
+                                        h3.textContent = subtitle[y];
+                                        listoptions.appendChild(h3);
                                         previous = y;
                                         break;
                                 }
                         }
-                        if (custom[i].type == "define" && (custom[i].name.indexOf("BANNER") !== -1)) {
-                                desc = custom[i].description;
-                                if (custom[i].name === custom[i].description) { desc = ""; }
-                                listoptions += '<label for="' + custom[i].name + '">' + custom[i].name + ': <input type="text" size="6" placeholder="' + custom[i].description.replace('"', '') + '" value="' + custom[i].description.replace('"', '') + '" name="' + custom[i].file + '/' + custom[i].name +'" /> Default: ' + desc + '</label><br/><br/>';
-                        } else if (custom[i].type == "define" && (custom[i].description.indexOf("0x") !== -1)) {
-                                desc = custom[i].description;
-                                if (custom[i].name === custom[i].description) { desc = ""; }
-                                listoptions += '<label for="' + custom[i].name + '">' + custom[i].name + ': <input type="text" size="6" placeholder="' + custom[i].description.replace('"', '') + '" value="' + custom[i].description.replace('"', '') + '" name="' + custom[i].file + '/' + custom[i].name +'" /> Default: ' + desc + '</label><br/><br/>';
-			} else if (custom[i].type == "define") {
-                                custom[i].href_help_name = '<a class="help_buildcfg" href="http://www.ipxe.org/buildcfg/' + custom[i].name + '" target="_blank">' + custom[i].name + '</a>';
-                                listoptions += '<label for="' + custom[i].name + '"><input type="checkbox" value="1" name="' + custom[i].file + '/' + custom[i].name + '" checked/>' + custom[i].href_help_name + ', ' + custom[i].description + '</label><br/><br/>';
+                        var fieldName = custom[i].file + '/' + custom[i].name;
+                        if (custom[i].type == "define" && (custom[i].name.indexOf("BANNER") !== -1 || custom[i].description.indexOf("0x") !== -1)) {
+                                listoptions.appendChild(makeTextOptionLabel(custom[i].name, fieldName, 6, custom[i].description, custom[i].description, 'Default: '));
+                        } else if (custom[i].type == "define") {
+                                listoptions.appendChild(makeCheckboxOptionLabel(custom[i].name, fieldName, true, custom[i].description));
                         } else if (custom[i].type == "undef") {
-                                custom[i].href_help_name = '<a class="help_buildcfg" href="http://www.ipxe.org/buildcfg/' + custom[i].name + '" target="_blank">' + custom[i].name + '</a>';
-                                listoptions += '<label for="' + custom[i].name + '"><input type="checkbox" value="0" name="' + custom[i].file + '/' + custom[i].name + '" />' + custom[i].href_help_name + ', ' + custom[i].description + '</label><br/><br/>';
+                                listoptions.appendChild(makeCheckboxOptionLabel(custom[i].name, fieldName, false, custom[i].description));
                         } else if (custom[i].type == "input") {
-                                desc = custom[i].description;
-                                if (custom[i].name === custom[i].description) { desc = ""; }
-				if (custom[i].name.indexOf("PRODUCT") !== -1)
-                                        listoptions += '<label for="' + custom[i].name + '">' + custom[i].name + ': <input type="text" size="50" placeholder="' + custom[i].value.replace('"', '') + '" value="' + custom[i].value.replace('"', '') + '" name="' + custom[i].file + '/' + custom[i].name +'" /> ' + desc + '</label><br/><br/>';
-				else
-                                        listoptions += '<label for="' + custom[i].name + '">' + custom[i].name + ': <input type="text" size="6" placeholder="' + custom[i].value.replace('"', '') + '" value="' + custom[i].value.replace('"', '') + '" name="' + custom[i].file + '/' + custom[i].name +'" /> ' + desc + '</label><br/><br/>';
+                                var size = (custom[i].name.indexOf("PRODUCT") !== -1) ? 50 : 6;
+                                listoptions.appendChild(makeTextOptionLabel(custom[i].name, fieldName, size, custom[i].value, custom[i].description, ''));
                         } else { alert("we have an issue"); }
                 }
-                $("#options").html(listoptions);
+                document.getElementById('options').replaceChildren(listoptions);
         })
 
         /* Reset from on reload */
-        $("input[name=wizardtype]:first").prop('checked', true);
-        $("#outputformatstd").prop('selectedIndex', 0);
-        $("#outputformatadv").prop('selectedIndex', 0);
+        document.querySelector('input[name=wizardtype]').checked = true;
+        document.getElementById('outputformatstd').selectedIndex = 0;
+        document.getElementById('outputformatadv').selectedIndex = 0;
 
-        $("#formtype").change(function(){
-                var wizardtype = $('input:radio[name=wizardtype]:checked').val();
-                //alert(wizardtype);
+        document.getElementById('formtype').addEventListener('change', function() {
+                var wizardtype = document.querySelector('input[name=wizardtype]:checked').value;
                 if (wizardtype == "standard")
                 {
-                        $("#divstandard").css({'display': 'inline'});
-                        $("#divadvanced").css({'display': 'none'});
+                        document.getElementById('divstandard').style.display = 'inline';
+                        document.getElementById('divadvanced').style.display = 'none';
                 }
                 else if (wizardtype == "advanced")
                 {
-                        $("#divstandard").css({'display': 'none'});
-                        $("#divadvanced").css({'display': 'inline'});
+                        document.getElementById('divstandard').style.display = 'none';
+                        document.getElementById('divadvanced').style.display = 'inline';
                 }
         });
 
-        $("#gitrevision").change(function(){
-                var gitversion = $("#gitrevision").val();
-                var git = '<p><h2 class="wizard-header">Generating iPXE build image version ' + gitversion + '</h2></p>';
-                $("#gitabbrev").html(git);
+        document.getElementById('gitrevision').addEventListener('change', function() {
+                renderGitAbbrevHeader(document.getElementById('gitrevision').value);
         });
 
-        $("#outputformatstd").change(function(){
-                var outputformat = $("#outputformatstd").val();
-                //alert(outputformat);
+        document.getElementById('outputformatstd').addEventListener('change', function() {
+                var outputformat = document.getElementById('outputformatstd').value;
                 if (outputformat == "-")
                 {
-                        $("#embedded").css({'display': 'none'});
-                        $("#debug").css({'display': 'none'});
-                        $("#gitversion").css({'display': 'none'});
-                        $("#build").css({'display': 'none'});
+                        document.getElementById('embedded').style.display = 'none';
+                        document.getElementById('debug').style.display = 'none';
+                        document.getElementById('gitversion').style.display = 'none';
+                        document.getElementById('build').style.display = 'none';
                 }
                 else
                 {
-                        $("#embedded").css({'display': 'inline'});
-                        $("#debug").css({'display': 'inline'});
-                        $("#gitversion").css({'display': 'inline'});
-                        $("#build").css({'display': 'inline'});
+                        document.getElementById('embedded').style.display = 'inline';
+                        document.getElementById('debug').style.display = 'inline';
+                        document.getElementById('gitversion').style.display = 'inline';
+                        document.getElementById('build').style.display = 'inline';
                 }
         });
 
-        $("#outputformatadv").change(function(){
-                var outputformat = $("#outputformatadv").val();
-                //alert(outputformat);
+        document.getElementById('outputformatadv').addEventListener('change', function() {
+                var outputformat = document.getElementById('outputformatadv').value;
                 if (outputformat.indexOf("rom", outputformat.length - 3) !== -1)
                 {	/* If a ROM */
-                        $("#rom").css({'display': 'inline'});
-                        $("#iface").css({'display': 'none'});
-                        $("#config").css({'display': 'none'});
-                        $("#embedded").css({'display': 'inline'});
-                        $("#debug").css({'display': 'none'});
-                        $("#gitversion").css({'display': 'inline'});
-                        $("#build").css({'display': 'inline'});
+                        document.getElementById('rom').style.display = 'inline';
+                        document.getElementById('iface').style.display = 'none';
+                        document.getElementById('config').style.display = 'none';
+                        document.getElementById('embedded').style.display = 'inline';
+                        document.getElementById('debug').style.display = 'none';
+                        document.getElementById('gitversion').style.display = 'inline';
+                        document.getElementById('build').style.display = 'inline';
                 }
                 else if (outputformat == "-" || outputformat == "--")
                 {	/* If default */
-                        $("#rom").css({'display': 'none'});
-                        $("#iface").css({'display': 'none'});
-                        $("#config").css({'display': 'none'});
-                        $("#embedded").css({'display': 'none'});
-                        $("#debug").css({'display': 'none'});
-                        $("#gitversion").css({'display': 'none'});
-                        $("#build").css({'display': 'none'});
+                        document.getElementById('rom').style.display = 'none';
+                        document.getElementById('iface').style.display = 'none';
+                        document.getElementById('config').style.display = 'none';
+                        document.getElementById('embedded').style.display = 'none';
+                        document.getElementById('debug').style.display = 'none';
+                        document.getElementById('gitversion').style.display = 'none';
+                        document.getElementById('build').style.display = 'none';
                 }
                 else
                 {
-                        $("#rom").css({'display': 'none'});
-                        $("#iface").css({'display': 'inline'});
-                        $("#config").css({'display': 'inline'});
-                        $("#embedded").css({'display': 'inline'});
-                        $("#debug").css({'display': 'inline'});
-                        $("#gitversion").css({'display': 'inline'});
-                        $("#build").css({'display': 'inline'});
+                        document.getElementById('rom').style.display = 'none';
+                        document.getElementById('iface').style.display = 'inline';
+                        document.getElementById('config').style.display = 'inline';
+                        document.getElementById('embedded').style.display = 'inline';
+                        document.getElementById('debug').style.display = 'inline';
+                        document.getElementById('gitversion').style.display = 'inline';
+                        document.getElementById('build').style.display = 'inline';
                 }
         });
 
         /* Compose build.fcgi url */
         function buildcfg() {
                 /* Get values from form */
-                var wizard = $('input:radio[name=wizardtype]:checked').val();
+                var wizard = document.querySelector('input[name=wizardtype]:checked').value;
                 var bindir = "";
                 var binary = "";
-                var options = "";
-                /* Get generic values from form */
-                var debug = escape($("#setdebug").val());
-                var revision = $("#gitrevision").val();
-                var embed = escape($("#embed").val());
+                /* [key, value] pairs for changed advanced options, applied
+                 * to the URLSearchParams built below once BINARY/BINDIR are
+                 * known -- keeps the fixed fields first in the generated
+                 * URL, matching the previous, hand-built order. */
+                var optionEntries = [];
+                /* Values are left undecoded here; URLSearchParams.set()
+                 * below does the percent-encoding. Previously this used
+                 * escape(), which mis-encodes U+0080-U+00FF as invalid
+                 * UTF-8 (see the finding in ARCHITECTURE.md). */
+                var debug = document.getElementById('setdebug').value;
+                var revision = document.getElementById('gitrevision').value;
+                var embed = document.getElementById('embed').value;
                 if (embed == "#!ipxe") { embed = ""; }
                 if (wizard == "standard")
                 { 	/* get values from elements on the STD wizard */
-                        bindir = $("#outputformatstd").val().split("/")[0];
-                        binary = $("#outputformatstd").val().split("/")[1];
+                        bindir = document.getElementById('outputformatstd').value.split("/")[0];
+                        binary = document.getElementById('outputformatstd').value.split("/")[1];
                 }
                 else if (wizard == "advanced")
                 {	/* get values from elements on the ADV wizard */
-                        bindir = $("#outputformatadv").val().split("/")[0];
-                        binary = $("#outputformatadv").val().split("/")[1];
+                        bindir = document.getElementById('outputformatadv').value.split("/")[0];
+                        binary = document.getElementById('outputformatadv').value.split("/")[1];
                         if (binary.indexOf("rom", binary.length - 3) !== -1)
                         {
                                 /* Ensure device_id and vendor_id are valid */
-                                var pci_vendor_code = $("#pci_vendor_code").val().toLowerCase();
-                                var pci_device_code = $("#pci_device_code").val().toLowerCase();
-                                /* using jQuery.grep as polyfill for older browsers without Array.prototype.filter */
-                                var idx_nic = $.grep(roms, function(obj) {
+                                var pci_vendor_code = document.getElementById('pci_vendor_code').value.toLowerCase();
+                                var pci_device_code = document.getElementById('pci_device_code').value.toLowerCase();
+                                var idx_nic = roms.filter(function(obj) {
                                         return obj.vendor_id == pci_vendor_code && obj.device_id == pci_device_code;
                                 });
                                 if (pci_vendor_code && pci_device_code && idx_nic && idx_nic.length > 0) {
-                                    binary = $("#pci_vendor_code").val().toLowerCase() + $("#pci_device_code").val().toLowerCase() + "." + binary;
+                                    binary = pci_vendor_code + pci_device_code + "." + binary;
                                 } else {
-                                    $("#pci_roms_id_error").css({'display': 'inline'});
-                                    $("#pci_roms_id_error").html("Invalid or unsupported pci_vendor_code or pci_device_code <br/>");
+                                    var romsIdError = document.getElementById('pci_roms_id_error');
+                                    romsIdError.style.display = 'inline';
+                                    romsIdError.innerHTML = "Invalid or unsupported pci_vendor_code or pci_device_code <br/>";
                                     return;
                                 }
                         }
-                        /* For all Checkbox in options div */
-                        $("#options").find("input:checkbox").each(function(index) {
-                                var name = $(this).prop("name");
-                                var value = $(this).prop("checked") ? 1 : 0;
-                                if ($(this).val() != value) {
-                                        console.log( "Checkbox:" + index + ": " + name + " default: " + $(this).val() + " new: " + $(this).prop("checked") );
-                                        options += name + ":=" + value + "&";
+                        /* For all Checkbox in options div. The trailing ":"
+                         * on the key is part of the wire format build.fcgi
+                         * expects for boolean overrides, not a typo -- see
+                         * the matching strip in loadcfg(). */
+                        document.querySelectorAll('#options input[type=checkbox]').forEach(function(input, index) {
+                                var name = input.name;
+                                var value = input.checked ? 1 : 0;
+                                if (input.value != value) {
+                                        console.log( "Checkbox:" + index + ": " + name + " default: " + input.value + " new: " + input.checked );
+                                        optionEntries.push([name + ":", value]);
                                 }
                         });
                         /* For all text field in options div */
-                        $("#options").find("input:text").each(function(index) {
-                                var name = $(this).prop("name");
-                                var placeholder = $(this).prop("placeholder");
-                                if ($(this).val() != placeholder) {
-                                        console.log( "Text:" + index + ": " + name + " default: " + $(this).prop("placeholder") + " new: " + $(this).val());
-                                        options += name + "=" + escape($(this).val()) + "&";
+                        document.querySelectorAll('#options input[type=text]').forEach(function(input, index) {
+                                var name = input.name;
+                                var placeholder = input.placeholder;
+                                if (input.value != placeholder) {
+                                        console.log( "Text:" + index + ": " + name + " default: " + input.placeholder + " new: " + input.value);
+                                        optionEntries.push([name, input.value]);
                                 }
                         });
                 }
 
-                console.log('{ BINARY: ['+ binary +'], BINDIR: ['+ bindir +'], DEBUG: ['+ debug +'], REVISION: ['+ revision +'], EMBED: ['+ embed +'] , OPTIONS: ['+ options +']}');
+                var params = new URLSearchParams();
+                params.set('BINARY', binary);
+                params.set('BINDIR', bindir);
+                params.set('REVISION', revision);
+                params.set('DEBUG', debug);
+                params.set('EMBED.00script.ipxe', embed);
+                optionEntries.forEach(function(entry) { params.append(entry[0], entry[1]); });
 
-                return 'build.fcgi?BINARY='+binary+'&BINDIR='+bindir+'&REVISION='+revision+'&DEBUG='+debug+'&EMBED.00script.ipxe='+embed+'&'+options;
+                console.log('{ BINARY: ['+ binary +'], BINDIR: ['+ bindir +'], DEBUG: ['+ debug +'], REVISION: ['+ revision +'], EMBED: ['+ embed +'] , OPTIONS: ['+ optionEntries.length +' changed]}');
+
+                return 'build.fcgi?' + params.toString();
         };
 
-		/* Update fields with defaults from current URL */
-		function loadcfg(delay) {
-			/* if the form is not ready, wait a while */
-			if ($("#gitrevision,#nics,#options").length != 3
-				|| $("#gitrevision").html().trim().length == 0
-				|| $("#nics").html().trim().length == 0
-				|| $("#options").html().trim().length == 0
-			) {
-				if (typeof delay == "undefined") {
-					delay = 0;
-				}
-				if (delay < 700) {
-					delay = (delay*2)+100;
-				} else if (delay < 3000) {
-					delay += 100
-				} else {
-					delay = 3000
-				}
-				setTimeout(function(){loadcfg(delay);}, delay);
-				return;
+	/* Update fields with defaults from current URL */
+	function loadcfg(delay) {
+		/* if the form is not ready, wait a while */
+		if (!document.getElementById('gitrevision') || !document.getElementById('nics') || !document.getElementById('options')
+			|| document.getElementById('gitrevision').innerHTML.trim().length == 0
+			|| document.getElementById('nics').innerHTML.trim().length == 0
+			|| document.getElementById('options').innerHTML.trim().length == 0
+		) {
+			if (typeof delay == "undefined") {
+				delay = 0;
 			}
-			/* Parse querystring and generate args */
-			var querystring = window.location.search;
-			querystring = querystring.replace(/^\?+/, '');
-			if (querystring == "") return;
-			querystring = querystring.split('&');
-			var args = {};
-			querystring.forEach(function(item){
-				var key = item.split('=', 1)[0];
-				var value = item.substr(key.length + 1);
-				key = key.replace(/:$/, '');
-				args[key] = value;
-			});
-			/* Get values from args */
-			//$('input:radio[name=wizardtype]#advanced').prop('checked', true);
-			$('input:radio[name=wizardtype]#advanced').click();
-			var bindir = (args['BINDIR'] > "") ? args['BINDIR'] : "";
-			var binary = (args['BINARY'] > "") ? args['BINARY'] : "";
-			var debug = (args['DEBUG'] > "") ? args['DEBUG'] : "";
-			var revision = (args['REVISION'] > "") ? args['REVISION'] : "";
-			var embed = (args['EMBED.00script.ipxe'] > "") ? args['EMBED.00script.ipxe'] : "";
-			/* parse pci id for rom images */
-			if (binary.indexOf("rom", binary.length - 3) !== -1)
-			{
-				var pci_id_code = binary.split('.', 1)[0];
-				binary = binary.substr(pci_id_code.length + 1);
-				if (pci_id_code.length != 8) {
-					console.error("Unknown format for pci id: ", pci_id_code);
-				} else {
-					/* Ensure device_id and vendor_id are valid */
-					var pci_vendor_code = pci_id_code.substr(0,4);
-					var pci_device_code = pci_id_code.substr(4,4);
-					$("#pci_vendor_code").val(pci_vendor_code).change();
-					$("#pci_device_code").val(pci_device_code).change();
-					/* using jQuery.grep as polyfill for older browsers without Array.prototype.filter */
-					var idx_nic = $.grep(roms, function(obj) {
-						return obj.vendor_id == pci_vendor_code && obj.device_id == pci_device_code;
-					});
-					if (!pci_vendor_code || !pci_device_code || !idx_nic || idx_nic.length == 0) {
-						$("#pci_roms_id_error").css({'display': 'inline'});
-						$("#pci_roms_id_error").html("Invalid or unsupported pci_vendor_code or pci_device_code <br/>");
-					}
-				}
+			if (delay < 700) {
+				delay = (delay*2)+100;
+			} else if (delay < 3000) {
+				delay += 100
+			} else {
+				delay = 3000
 			}
-			/* build up full binary string */
-			var fullbinary = bindir + "/" + binary;
-			/* Set values in form */
-			$("#setdebug").val(unescape(debug));
-			$("#gitrevision").val(unescape(revision));
-			$("#embed").val(unescape(embed))
-			/* Set values for elements in the ADV wizard */
-			$("#outputformatadv").val(fullbinary).change();
-			/* For all Checkboxes in options div */
-			$("#options").find("input:checkbox").each(function(index) {
-				var name = $(this).prop("name");
-				var value = $(this).prop("checked") ? 1 : 0;
-				if (typeof args[name] != "undefined" && value != args[name]) {
-					$(this).prop("checked", args[name] == 1);
-				}
-			});
-			/* For all text field in options div */
-			$("#options").find("input:text").each(function(index) {
-				var name = $(this).prop("name");
-				if (typeof args[name] != "undefined") {
-					$(this).val(args[name]);
-				}
-			});
+			setTimeout(function(){loadcfg(delay);}, delay);
+			return;
 		}
+		/* Parse querystring and generate args. URLSearchParams decodes
+		 * values automatically (unlike the previous hand-rolled split,
+		 * which left checkbox/text option values undecoded -- e.g. a
+		 * saved "My Product Name" restored as the literal string
+		 * "My%20Product%20Name"). Its decoding is also lenient rather
+		 * than throwing on malformed input, so a legacy escape()-style
+		 * saved URL (see ARCHITECTURE.md) won't crash the restore, even
+		 * though characters outside plain ASCII in such a URL may not
+		 * come back exactly as originally typed -- that data was already
+		 * corrupted at save time by the bug this fixes. */
+		var searchParams = new URLSearchParams(window.location.search);
+		if (!searchParams.toString()) return;
+		var args = {};
+		searchParams.forEach(function(value, key) {
+			args[key.replace(/:$/, '')] = value;
+		});
+		/* Get values from args */
+		var bindir = (args['BINDIR'] > "") ? args['BINDIR'] : "";
+		var binary = (args['BINARY'] > "") ? args['BINARY'] : "";
+		var debug = (args['DEBUG'] > "") ? args['DEBUG'] : "";
+		var revision = (args['REVISION'] > "") ? args['REVISION'] : "";
+		var embed = (args['EMBED.00script.ipxe'] > "") ? args['EMBED.00script.ipxe'] : "";
+		/* parse pci id for rom images */
+		if (binary.indexOf("rom", binary.length - 3) !== -1)
+		{
+			var pci_id_code = binary.split('.', 1)[0];
+			binary = binary.substr(pci_id_code.length + 1);
+			if (pci_id_code.length != 8) {
+				console.error("Unknown format for pci id: ", pci_id_code);
+			} else {
+				/* Ensure device_id and vendor_id are valid */
+				var pci_vendor_code = pci_id_code.substr(0,4);
+				var pci_device_code = pci_id_code.substr(4,4);
+				var pciVendorInput = document.getElementById('pci_vendor_code');
+				var pciDeviceInput = document.getElementById('pci_device_code');
+				pciVendorInput.value = pci_vendor_code;
+				pciVendorInput.dispatchEvent(new Event('change'));
+				pciDeviceInput.value = pci_device_code;
+				pciDeviceInput.dispatchEvent(new Event('change'));
+				var idx_nic = roms.filter(function(obj) {
+					return obj.vendor_id == pci_vendor_code && obj.device_id == pci_device_code;
+				});
+				if (!pci_vendor_code || !pci_device_code || !idx_nic || idx_nic.length == 0) {
+					var romsIdError = document.getElementById('pci_roms_id_error');
+					romsIdError.style.display = 'inline';
+					romsIdError.innerHTML = "Invalid or unsupported pci_vendor_code or pci_device_code <br/>";
+				}
+			}
+		}
+		/* build up full binary string */
+		var fullbinary = bindir + "/" + binary;
+		/* Set values in form. Already decoded by URLSearchParams above. */
+		document.getElementById('setdebug').value = debug;
+		document.getElementById('gitrevision').value = revision;
+		document.getElementById('embed').value = embed;
+		/* The standard and advanced wizards use different, only
+		 * partially-overlapping sets of BINDIR/BINARY values (e.g.
+		 * "undionly.kpxe" only exists in the standard wizard's list).
+		 * Restore into whichever wizard's <select> actually has this
+		 * value, instead of always forcing advanced mode -- setting an
+		 * unmatched <select> value silently no-ops, which is why
+		 * standard-wizard saved URLs previously failed to restore. */
+		var isStandardValue = Array.from(document.querySelectorAll('#outputformatstd option')).some(function(opt) {
+			return opt.value === fullbinary;
+		});
+		if (isStandardValue) {
+			document.getElementById('standard').click();
+			document.getElementById('outputformatstd').value = fullbinary;
+			document.getElementById('outputformatstd').dispatchEvent(new Event('change'));
+		} else {
+			document.getElementById('advanced').click();
+			document.getElementById('outputformatadv').value = fullbinary;
+			document.getElementById('outputformatadv').dispatchEvent(new Event('change'));
+		}
+		/* For all Checkboxes in options div */
+		document.querySelectorAll('#options input[type=checkbox]').forEach(function(input) {
+			var name = input.name;
+			var value = input.checked ? 1 : 0;
+			if (typeof args[name] != "undefined" && value != args[name]) {
+				input.checked = (args[name] == 1);
+			}
+		});
+		/* For all text field in options div */
+		document.querySelectorAll('#options input[type=text]').forEach(function(input) {
+			var name = input.name;
+			if (typeof args[name] != "undefined") {
+				input.value = args[name];
+			}
+		});
+	}
 
-        $("#ipxeimage").submit(function(event) {
+        document.getElementById('ipxeimage').addEventListener('submit', function(event) {
                 /* stop form from submitting normally */
                 event.preventDefault();
                 var url = buildcfg();
@@ -365,152 +531,139 @@ $(document).ready(function() {
         });
 
 
-        /* About Popup */
-        $(function() {
+        /* About / Save popup, using the native <dialog> element -- replaces
+         * bPopup, which is unmaintained and only ever did two things here:
+         * inject fetched content and show/hide a modal. <dialog> handles
+         * Escape-to-close and focus restoration on close natively; the "x"
+         * button and backdrop-click close are wired up explicitly below,
+         * since showModal()'s backdrop doesn't close on click by default. */
+        (function() {
+                var popup = document.getElementById('about_pop_up');
+                var content = popup.querySelector('.content');
 
-                /* Bind a click event */
-                $('#about').on('click', function(e) {
+                function closePopup() {
+                        popup.close();
+                        content.innerHTML = '';
+                }
 
-                        /* Prevents the default action to be triggered */
+                popup.querySelector('.b-close').addEventListener('click', function(e) {
                         e.preventDefault();
-
-                        /* Triggering bPopup when click event is fired */
-                        $('#about_pop_up').bPopup({
-                                contentContainer:'#about_pop_up',
-                                loadUrl: 'about.html'
-                        });
+                        closePopup();
                 });
-                $('#about2').on('click', function(e) {
+                popup.addEventListener('click', function(e) {
+                        if (e.target === popup) { closePopup(); }
+                });
+                /* <dialog> is specified to close on Escape and fire 'close'
+                 * on every close path natively -- testing found neither
+                 * reliable in every environment, so both are handled
+                 * explicitly here rather than assumed. Harmless where the
+                 * native behaviour also fires; it just closes an
+                 * already-closed dialog. */
+                popup.addEventListener('keydown', function(e) {
+                        if (e.key === 'Escape') { closePopup(); }
+                });
+                popup.addEventListener('close', function() {
+                        content.innerHTML = '';
+                });
 
-                        /* Prevents the default action to be triggered */
+                function showAbout(e) {
                         e.preventDefault();
-
-                        /* Triggering bPopup when click event is fired */
-                        $('#about_pop_up').bPopup({
-                                contentContainer:'#about_pop_up',
-                                loadUrl: 'about.html'
+                        fetch('about.html').then(function(response) {
+                                return response.text();
+                        }).then(function(html) {
+                                content.innerHTML = html;
+                                popup.showModal();
                         });
-                });
+                }
+                document.getElementById('about').addEventListener('click', showAbout);
+                document.getElementById('about2').addEventListener('click', showAbout);
 
-                $('#save').on('click', function(e) {
-
-                        /* Prevents the default action to be triggered */
+                document.getElementById('save').addEventListener('click', function(e) {
                         e.preventDefault();
-			var self = $(this) //button
-			, content = $('.content');
-
-                        /* Triggering bPopup when click event is fired */
-                        $('#about_pop_up').bPopup({
-                                onOpen: function() {
-					var baseURI = document.baseURI.replace(window.location.search,'').replace(/index\.html$/,'');
-					var config = buildcfg();
-					var data = "<h2>Direct buildcfg URL</h2><p>Use this URL to directly retreive your binary for later use:</p>";
-					data += "<br/>" + baseURI + config;
-					data += "<br/><h2>Editable Configuration URL</h2><p>Use this URL to adjust your binary's setup:</p>";
-					var editcfg = config.replace(/^[^?]*\?/,'?');
-					data += "<br/>" + baseURI + editcfg;
-			                content.html(data);
-				},
-				onClose: function() {
-					content.empty();
-				}
-                        });
+                        var baseURI = document.baseURI.replace(window.location.search,'').replace(/index\.html$/,'');
+                        var config = buildcfg();
+                        if (!config) { return; }
+                        var data = "<h2>Direct buildcfg URL</h2><p>Use this URL to directly retreive your binary for later use:</p>";
+                        data += "<br/>" + baseURI + config;
+                        data += "<br/><h2>Editable Configuration URL</h2><p>Use this URL to adjust your binary's setup:</p>";
+                        var editcfg = config.replace(/^[^?]*\?/,'?');
+                        data += "<br/>" + baseURI + editcfg;
+                        content.innerHTML = data;
+                        popup.showModal();
                 });
-				setTimeout(loadcfg, 50);
-        });
 
-        /* Input file */
-        $(function() {
-                function handleFileSelect(evt) {
-                        var file = evt.target.files[0]; // FileList object
+                setTimeout(loadcfg, 50);
+        })();
 
-                        // Only process text or unknow file type.
+        /* Embedded script file handling, shared by the file picker and the
+         * drop zone -- these were previously two near-identical copies. */
+        (function() {
+                var list = document.getElementById('list');
+
+                /* Replace the status area with a single message. Built as a
+                 * text node rather than an HTML string so a filename
+                 * containing markup can't be injected -- the old code relied
+                 * on escape() for that, which also meant spaces in filenames
+                 * displayed as "%20". */
+                function showMessage(text, isError) {
+                        var ul = document.createElement('ul');
+                        if (isError) { ul.style.backgroundColor = 'red'; }
+                        ul.textContent = text;
+                        list.replaceChildren(ul);
+                }
+
+                function showFileInfo(file) {
+                        var ul = document.createElement('ul');
+                        var li = document.createElement('li');
+                        var strong = document.createElement('strong');
+                        strong.textContent = file.name;
+                        li.appendChild(strong);
+                        li.appendChild(document.createTextNode(
+                                ' (' + (file.type || 'n/a') + ') - ' + file.size +
+                                ' bytes, last modified: ' +
+                                (file.lastModified ? new Date(file.lastModified).toLocaleDateString() : 'n/a')
+                        ));
+                        ul.appendChild(li);
+                        list.replaceChildren(ul);
+                }
+
+                function handleFile(file) {
+                        // Only process text or unknown file type.
                         if (!file.type.match('text*') && file.type != "") {
-                                document.getElementById('list').innerHTML = '<ul style="background-color: red;"> Only text file are supported </ul>';
+                                showMessage(' Only text file are supported ', true);
                                 return;
                         }
 
-                        // file is a File objects. List some properties.
-                        var output = [];
-                        output.push('<li><strong>', escape(file.name), '</strong> (', file.type || 'n/a', ') - ',
-                                file.size, ' bytes, last modified: ',
-                                file.lastModifiedDate ? file.lastModifiedDate.toLocaleDateString() : 'n/a',
-                                '</li>');
-
                         var reader = new FileReader();
-                        // Closure to capture the file information.
-                        reader.onload = (function(theFile) {
-                                return function(e) {
-                                                var content = e.target.result;
-                                                $("#embed").val(content);
-                                                if (content.indexOf("#!ipxe") === -1) {
-                                                        document.getElementById('list').innerHTML =
-                                                                '<ul style="background-color: red;"> Not a iPXE script </ul>';
-                                                }
-                                        };
-                        })(file);
-
-                        // Read in the text file as Text.
+                        reader.onload = function(e) {
+                                var content = e.target.result;
+                                document.getElementById('embed').value = content;
+                                if (content.indexOf("#!ipxe") === -1) {
+                                        showMessage(' Not a iPXE script ', true);
+                                }
+                        };
                         reader.readAsText(file);
 
-                        document.getElementById('list').innerHTML = '<ul>' + output.join('') + '</ul>';
+                        showFileInfo(file);
                 }
-                document.getElementById('embedfile').addEventListener('change', handleFileSelect, false);
-        });
 
-        /* Drop file zone */
-        $(function() {
-                function handleFileSelect(evt) {
-                                evt.stopPropagation();
-                                evt.preventDefault();
+                document.getElementById('embedfile').addEventListener('change', function(evt) {
+                        handleFile(evt.target.files[0]);
+                }, false);
 
-                                //Retrieve the first (and only!) File from the FileList object
-                                var file = evt.dataTransfer.files[0]; // FileList object.
-
-                                // Only process textfiles.
-                                if (!file.type.match('text*') && file.type != "") {
-                                        document.getElementById('list').innerHTML = '<ul style="background-color: red;"> Only text file are supported </ul>';
-                                        return;
-                                }
-
-                                // file is a File objects. List some properties.
-                                var output = [];
-                                output.push('<li><strong>', escape(file.name), '</strong> (', file.type || 'n/a', ') - ',
-                                        file.size, ' bytes, last modified: ',
-                                        file.lastModifiedDate ? file.lastModifiedDate.toLocaleDateString() : 'n/a',
-                                        '</li>');
-
-                                var reader = new FileReader();
-                                // Closure to capture the file information.
-                                reader.onload = (function(theFile) {
-                                        return function(e) {
-                                                        var content = e.target.result;
-                                                        $("#embed").val(content);
-                                                        if (content.indexOf("#!ipxe") === -1) {
-                                                                document.getElementById('list').innerHTML =
-                                                                        '<ul style="background-color: red;"> Not a iPXE script </ul>';
-                                                        }
-                                                };
-                                })(file);
-
-                                // Read in the text file as Text.
-                                reader.readAsText(file);
-
-                                document.getElementById('list').innerHTML = '<ul>' + output.join('') + '</ul>';
-                                $("#embedfile").val("");
-                        }
-
-                        function handleDragOver(evt) {
-                                evt.stopPropagation();
-                                evt.preventDefault();
-                                evt.dataTransfer.dropEffect = 'copy'; // Explicitly show this is a copy.
-                        }
-
-                // Setup the dnd listeners.
                 var dropZone = document.getElementById('drop_zone');
-                dropZone.addEventListener('dragover', handleDragOver, false);
-                dropZone.addEventListener('drop', handleFileSelect, false);
-        });
+                dropZone.addEventListener('dragover', function(evt) {
+                        evt.stopPropagation();
+                        evt.preventDefault();
+                        evt.dataTransfer.dropEffect = 'copy'; // Explicitly show this is a copy.
+                }, false);
+                dropZone.addEventListener('drop', function(evt) {
+                        evt.stopPropagation();
+                        evt.preventDefault();
+                        handleFile(evt.dataTransfer.files[0]);
+                        document.getElementById('embedfile').value = "";
+                }, false);
+        })();
 
         // Check for the various File API support.
         if (!window.File && !window.FileReader) {

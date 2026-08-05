@@ -15,20 +15,20 @@
 		<meta name="description" content="a dynamic iPXE and Etherboot network boot image generator"/>
 		<meta http-equiv="Content-Type" content="text/html;charset=utf-8"/>
 		<link rel="stylesheet" type="text/css" href="css/ui.css"/>
-		<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/1/jquery.min.js"></script>
-		<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jqueryui/1/jquery-ui.min.js"></script>
-		<script type="text/javascript" src="js/jquery.bpopup.min.js"></script>
 		<script type="text/javascript" src="js/ui.js"></script>
 	</head>
 	<body>
 		<h1>
 			<a href="http://ipxe.org" title="iPXE website" target="_blank">Generate iPXE images</a> | <a href="#" id="about" title="About this website">About</a>
 		</h1>
-		<div id="about_pop_up"><a class="b-close">x</a><div class="content"></div></div>
+		<dialog id="about_pop_up"><a href="#" class="b-close">x</a><div class="content"></div></dialog>
 		<div id="wrapper">
 		<form action="#" enctype="multipart/form-data" method="post" id="ipxeimage" name="ipxeimage">
 
 			<div id="gitabbrev" class="gitabbrev">
+			</div>
+
+			<div id="fetch-status" class="fetch-status" style="display: none">
 			</div>
 
 			<div id="formtype" class="formtype">

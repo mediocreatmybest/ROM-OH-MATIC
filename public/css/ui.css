@@ -39,12 +39,18 @@ h3 span {
 
 #about_pop_up {
 	background-color:#fff;
+	border:none;
 	border-radius:15px;
 	color:#000;
-	display:none; 
 	padding:20px;
 	min-width:400px;
 	min-height: 180px;
+}
+
+/* <dialog> shows/hides itself via showModal()/close() (see ui.js) --
+ * no display:none override needed, the browser already starts it hidden. */
+#about_pop_up::backdrop {
+	background-color: rgba(0, 0, 0, 0.5);
 }
 
 .b-close{
@@ -120,6 +126,16 @@ h3 span {
 	background-color: #FF0000;
 	text-decoration: underline;
 	font-size: 14px;
+}
+
+.fetch-status {
+	font-size: 14px;
+	font-style: italic;
+	padding: 4px 0;
+}
+
+.fetch-status.error {
+	font-style: normal;
 }
 
 .wizard-header {

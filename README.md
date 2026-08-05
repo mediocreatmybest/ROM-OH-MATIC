@@ -10,7 +10,7 @@ A web-based user interface that provide a way for the user to select any relevan
 
 ## How
 
-The user interface, is using HTML, CSS as well as Javascript (jQuery) and a suitable server-side language (such as Perl and PHP).
+The user interface is using HTML, CSS, and plain Javascript (no frameworks or build step) with a suitable server-side language (such as Perl and PHP).
 All GUI options (git version/nics list/compile options) are generated dynamicaly using PHP.
 The build.fcgi script is written in Perl and was wrote by Michael Brown.
 
@@ -51,10 +51,16 @@ mediocreatmybest/ipxe-buildweb
 
 Current tags are:
 
-- `latest`: the most recent image published from `master`.
-- `<full-git-commit-sha>`: the repository revision used to trigger the image build.
+- `latest`: the most recent image published from `master`. This only ever moves once shell/Dockerfile validation, a real container start, and an actual iPXE build have all passed -- it never points at an untested build.
+- `<full-git-commit-sha>` / `sha-<short-commit>`: the repository revision used to trigger the image build, in full and short form.
 
 The published image currently targets `linux/amd64` only.
+
+Each image also carries standard [OCI labels](https://github.com/opencontainers/image-spec/blob/main/annotations.md) (`org.opencontainers.image.revision`, `.created`, `.source`, etc.) plus a couple of project-specific ones -- `org.rom-oh-matic.ipxe.revision`, `org.rom-oh-matic.distribution`, `org.rom-oh-matic.distribution.version` -- so `docker inspect` can tell you exactly what's inside without needing to start the container. For example:
+
+```bash
+docker inspect mediocreatmybest/ipxe-buildweb:latest --format '{{json .Config.Labels}}'
+```
 
 ## Run with Docker
 
