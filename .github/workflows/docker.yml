@@ -162,20 +162,27 @@ jobs:
         run: |
           openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
             -keyout /tmp/ci-root-key.pem -out /tmp/ci-root-cert.pem \
-            -subj '/CN=CI Test Root/O=CI' >/dev/null 2>&1
-          curl -sf --max-time 180 \
+            -subj '/CN=CI Test Root/O=CI'
+          status=$(curl -s --max-time 180 \
             -D /tmp/trust-build-headers.txt \
             -o /tmp/snponly.efi \
+            -w '%{http_code}' \
             -F 'BINARY=snponly.efi' \
             -F 'BINDIR=bin-x86_64-efi' \
             -F 'REVISION=master' \
             -F 'DEBUG=' \
             -F 'EMBED.00script.ipxe=' \
             -F 'TRUST_CERT=</tmp/ci-root-cert.pem' \
-            'http://localhost:8080/build.fcgi' || {
+            'http://localhost:8080/build.fcgi')
+          echo "Response status: ${status}"
+          if [ "$status" != "200" ]; then
             echo "Certificate-trust build request failed"
+            echo "--- response headers ---"
+            cat /tmp/trust-build-headers.txt
+            echo "--- response body ---"
+            cat /tmp/snponly.efi
             exit 1
-          }
+          fi
           grep -qi '^Content-Disposition: attachment' /tmp/trust-build-headers.txt || {
             echo "Response did not look like a file download"
             cat /tmp/trust-build-headers.txt
