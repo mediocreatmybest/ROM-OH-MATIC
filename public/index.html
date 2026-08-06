@@ -15,20 +15,20 @@
 		<meta name="description" content="a dynamic iPXE and Etherboot network boot image generator"/>
 		<meta http-equiv="Content-Type" content="text/html;charset=utf-8"/>
 		<link rel="stylesheet" type="text/css" href="css/ui.css"/>
-		<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/1/jquery.min.js"></script>
-		<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jqueryui/1/jquery-ui.min.js"></script>
-		<script type="text/javascript" src="js/jquery.bpopup.min.js"></script>
 		<script type="text/javascript" src="js/ui.js"></script>
 	</head>
 	<body>
 		<h1>
 			<a href="http://ipxe.org" title="iPXE website" target="_blank">Generate iPXE images</a> | <a href="#" id="about" title="About this website">About</a>
 		</h1>
-		<div id="about_pop_up"><a class="b-close">x</a><div class="content"></div></div>
+		<dialog id="about_pop_up"><a href="#" class="b-close">x</a><div class="content"></div></dialog>
 		<div id="wrapper">
 		<form action="#" enctype="multipart/form-data" method="post" id="ipxeimage" name="ipxeimage">
 
 			<div id="gitabbrev" class="gitabbrev">
+			</div>
+
+			<div id="fetch-status" class="fetch-status" style="display: none">
 			</div>
 
 			<div id="formtype" class="formtype">
@@ -124,6 +124,64 @@
 					<h2 class="wizard-header">Customize image configuration options:</h2>
 					<a class="help" href="http://ipxe.org/buildcfg" target="_blank">Build configuration options</a><br/>
 					<div id="options" class="options">
+					</div>
+				</div>
+			</div>
+
+			<div id="trust" class="trust" style="display: none">
+				<div class="spacer">
+					<h2 class="wizard-header">HTTPS certificate trust:</h2>
+					<p>
+						By default, iPXE trusts the same certificate authorities most operating
+						systems do. If your PXE/HTTPS server uses a private certificate authority
+						or a self-signed certificate (common with FOG-style deployments), you can
+						build iPXE to trust it specifically.
+					</p>
+					<div id="trust_bios_warning" class="notice" style="display: none">
+						<strong>Please note:</strong>
+						The selected output format does not support HTTPS -- this is an
+						<a href="https://github.com/ipxe/ipxe/blob/12798ec29aa8a64d8675c4378b99f5fe28447afb/src/config/general.h#L62-L65" target="_blank">iPXE decision for BIOS-format builds</a>.
+						Adding a certificate trust with this output will not function as intended.
+						Please choose a UEFI output format to use this option.
+					</div>
+
+					<input type="radio" name="trustmode" value="standard" id="trust_standard" checked />
+					<label for="trust_standard">Use standard iPXE certificate trust</label>
+					<br/>
+					<input type="radio" name="trustmode" value="custom" id="trust_custom" />
+					<label for="trust_custom">Trust a private CA or self-signed certificate</label>
+
+					<div id="trust_custom_fields" style="display: none">
+						<br/>
+						<label for="trust_cert_file">Certificate file: <input type="file" id="trust_cert_file" accept=".pem,.crt,.cer,.der,.txt" /></label>
+						<br/><br/>
+						Or paste PEM certificate:<br/>
+						<textarea id="trust_cert_text" rows="8" cols="60" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea>
+						<br/><br/>
+						<div id="trust_cert_status" class="fetch-status" style="display: none"></div>
+						<div id="trust_cert_preview" style="display: none"></div>
+
+						<p>
+							<details>
+								<summary>What's the difference between trusting a CA and pinning a certificate?</summary>
+								Trusting a certificate authority (CA) means iPXE will trust any server
+								certificate signed by it -- the same way a browser trusts a public CA.
+								That's different from pinning a single server's own certificate, which
+								would need re-uploading every time that certificate is renewed. Trusting
+								a stable private CA instead means your HTTPS server's certificate can be
+								renewed without rebuilding every iPXE client, as long as the replacement
+								is signed by the same CA.
+							</details>
+						</p>
+						<p>
+							<details>
+								<summary>Does this disable HTTPS security checks?</summary>
+								No. Adding a trusted certificate does not disable iPXE's normal HTTPS
+								checks. Your server's certificate must still match the exact hostname or
+								IP address iPXE connects to, and be within its valid date range -- this
+								only adds a new trusted root, it doesn't bypass anything.
+							</details>
+						</p>
 					</div>
 				</div>
 			</div>

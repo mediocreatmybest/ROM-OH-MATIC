@@ -105,5 +105,14 @@ RUN git config --global --add safe.directory /opt/rom-o-matic/ipxe
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -q -O /dev/null http://localhost:80/ || exit 1
 
+# Project-specific build metadata (standard OCI labels -- title, revision,
+# created, etc. -- are added by docker/metadata-action in the workflow
+# instead of hard-coded here). Populated by CI; a plain local `docker build .`
+# gets a sensible fallback rather than a hard failure.
+ARG IPXE_REVISION=unknown
+LABEL org.rom-oh-matic.ipxe.revision="${IPXE_REVISION}" \
+      org.rom-oh-matic.distribution="ubuntu" \
+      org.rom-oh-matic.distribution.version="24.04"
+
 # Entry point to start the container and the additional services.
 ENTRYPOINT ["/opt/rom-o-matic/start.sh"]

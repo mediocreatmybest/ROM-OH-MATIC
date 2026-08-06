@@ -15,6 +15,14 @@ body {
 	padding: 0;
 }
 
+/* Form controls don't inherit body's font-family by default (browser UA
+ * stylesheets give them their own default, generally the OS UI font), so
+ * without this every text input/select/textarea visually mismatches the
+ * surrounding page text. */
+input, select, textarea, button {
+	font-family: inherit;
+}
+
 h1 {
 	background-color: #333;
 	color: #fff;
@@ -39,12 +47,18 @@ h3 span {
 
 #about_pop_up {
 	background-color:#fff;
+	border:none;
 	border-radius:15px;
 	color:#000;
-	display:none; 
 	padding:20px;
 	min-width:400px;
 	min-height: 180px;
+}
+
+/* <dialog> shows/hides itself via showModal()/close() (see ui.js) --
+ * no display:none override needed, the browser already starts it hidden. */
+#about_pop_up::backdrop {
+	background-color: rgba(0, 0, 0, 0.5);
 }
 
 .b-close{
@@ -122,6 +136,34 @@ h3 span {
 	font-size: 14px;
 }
 
+/* Less alarming than .error -- for "heads up, this won't do what you
+ * expect" cases that aren't actually invalid input, just an inert
+ * combination of choices (e.g. certificate trust on a BIOS output
+ * format, which iPXE itself doesn't compile HTTPS support into). */
+.notice {
+	background-color: #fff3cd;
+	border: 1px solid #ffc107;
+	border-radius: 4px;
+	color: #664d03;
+	padding: 6px 10px;
+	font-size: 13px;
+}
+
+.notice strong {
+	display: block;
+	margin-bottom: 2px;
+}
+
+.fetch-status {
+	font-size: 14px;
+	font-style: italic;
+	padding: 4px 0;
+}
+
+.fetch-status.error {
+	font-style: normal;
+}
+
 .wizard-header {
 	background-color: #f4f4f4;
 	border-bottom: #ddd 1px solid;
@@ -162,6 +204,132 @@ h3 span {
 
 #options label {
 	padding-left: 20px;
+}
+
+/* Every option, text or checkbox, is one .option-row with the same
+ * vertical spacing -- this is what gives the list a consistent rhythm
+ * instead of gaps varying with how long each option's <br>-separated
+ * content happened to be. */
+.option-row {
+	display: block;
+	margin: 0 0 14px 0;
+}
+
+/* Text options only: the name always sits on its own line above the
+ * input, rather than inline before it -- inline text flow made the input
+ * (and the help icon after it) wrap onto a new line whenever the name was
+ * too long to fit next to it on the same line, but not for shorter names,
+ * so the list looked inconsistent row to row. A fixed block structure
+ * removes that dependency on name length entirely. */
+.option-name {
+	display: block;
+	margin: 0 0 3px 0;
+}
+
+/* Input (or checkbox) plus its help icon, always together on one line. */
+.option-control {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.option-help-wrap {
+	position: relative;
+	display: inline-block;
+	vertical-align: middle;
+}
+
+.option-help {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	border: 1px solid #888;
+	background: #fff;
+	color: #555;
+	font-size: 11px;
+	font-weight: bold;
+	line-height: 1;
+	padding: 0;
+	cursor: help;
+}
+
+.option-help:hover,
+.option-help:focus {
+	background: #eef;
+	border-color: #558;
+	outline: none;
+}
+
+.option-description-popover {
+	display: none;
+	position: absolute;
+	top: 20px;
+	left: 0;
+	z-index: 10;
+	width: 320px;
+	max-width: 70vw;
+	padding: 8px 10px;
+	background: #fff;
+	border: 1px solid #999;
+	border-radius: 4px;
+	box-shadow: 0px 2px 6px rgba(0,0,0,0.25);
+	color: #333;
+	font-size: 12px;
+	font-weight: normal;
+	line-height: 1.4;
+	text-align: left;
+	white-space: normal;
+}
+
+.option-help-wrap:hover .option-description-popover,
+.option-help-wrap:focus-within .option-description-popover {
+	display: block;
+}
+
+#trust details {
+	font-size: 13px;
+	color: #555;
+	margin: 4px 0;
+}
+
+#trust summary {
+	cursor: pointer;
+	color: #333;
+}
+
+#trust_cert_preview {
+	margin-top: 8px;
+	padding: 8px 10px;
+	background: #fff;
+	border: 1px solid #999;
+	border-radius: 4px;
+	font-size: 13px;
+	line-height: 1.5;
+	max-width: 600px;
+}
+
+#trust_cert_preview .cert-field-name {
+	font-weight: bold;
+}
+
+#trust_cert_preview .cert-fingerprint {
+	font-family: monospace;
+	word-break: break-all;
+}
+
+#trust_cert_preview .cert-block {
+	margin-bottom: 10px;
+	padding-bottom: 10px;
+	border-bottom: 1px solid #eee;
+}
+
+#trust_cert_preview .cert-block:last-child {
+	margin-bottom: 0;
+	padding-bottom: 0;
+	border-bottom: none;
 }
 
 .buildbutton {

@@ -10,8 +10,8 @@ A web-based user interface that provide a way for the user to select any relevan
 
 ## How
 
-The user interface, is using HTML, CSS as well as Javascript (jQuery) and a suitable server-side language (such as Perl and PHP).
-All GUI options (git version/nics list/compile options) are generated dynamicaly using PHP.
+The user interface is using HTML, CSS, and plain JavaScript (no frameworks or build step) with a suitable server-side language (such as Perl and PHP).
+All GUI options (git version/nics list/compile options) are generated dynamically using PHP.
 The build.fcgi script is written in Perl and was wrote by Michael Brown.
 
 [![Docker build](https://github.com/mediocreatmybest/ROM-OH-MATIC/actions/workflows/docker.yml/badge.svg?branch=master)](https://github.com/mediocreatmybest/ROM-OH-MATIC/actions/workflows/docker.yml)
@@ -23,7 +23,7 @@ The build.fcgi script is written in Perl and was wrote by Michael Brown.
 
 Named after the great ROM-O-MATIC website, this web interface simplifies building iPXE binaries, allowing users to select relevant iPXE build options, provide an embedded script, and generate the required output without building it manually from the command line.
 
-This repository is not part of, or endorsed by, the official [iPXE project](https://ipxe.org/), I don't have the neccessary skills for that!
+This repository is not part of, or endorsed by, the official [iPXE project](https://ipxe.org/), I don't have the necessary skills for that!
 
 ## Current status
 
@@ -33,9 +33,9 @@ The Docker image is automatically built and published from `master`. Automated c
 | ----------------------------- | ------------------------------------------ |
 | Docker image build            | Automated on pushes to `master`            |
 | Docker image publication      | Automated as part of the current build job |
-| Container startup test        | TBD                                        |
-| HTTP response test            | TBD                                        |
-| iPXE artefact generation test | TBD                                        |
+| Container startup test        | ✅                                         |
+| HTTP response test            | ✅                                         |
+| iPXE artefact generation test | ✅                                         |
 | Published platform            | `linux/amd64`                              |
 | Current container base        | Ubuntu 24.04 LTS                           |
 
@@ -51,10 +51,16 @@ mediocreatmybest/ipxe-buildweb
 
 Current tags are:
 
-- `latest`: the most recent image published from `master`.
-- `<full-git-commit-sha>`: the repository revision used to trigger the image build.
+- `latest`: the most recent image published from `master`. This only ever moves once shell/Dockerfile validation, a real container start, and an actual iPXE build have all passed -- it never points at an untested build.
+- `<full-git-commit-sha>` / `sha-<short-commit>`: the repository revision used to trigger the image build, in full and short form.
 
 The published image currently targets `linux/amd64` only.
+
+Each image also carries standard [OCI labels](https://github.com/opencontainers/image-spec/blob/main/annotations.md) (`org.opencontainers.image.revision`, `.created`, `.source`, etc.) plus a couple of project-specific ones -- `org.rom-oh-matic.ipxe.revision`, `org.rom-oh-matic.distribution`, `org.rom-oh-matic.distribution.version` -- so `docker inspect` can tell you exactly what's inside without needing to start the container. For example:
+
+```bash
+docker inspect mediocreatmybest/ipxe-buildweb:latest --format '{{json .Config.Labels}}'
+```
 
 ## Run with Docker
 
@@ -139,6 +145,6 @@ Only reach for this on a network you already trust to be doing the interception 
 
 Any fixes or pull requests are welcome. Please keep changes small enough for me and test independently.
 
-## Licence
+## License
 
 This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [LICENSE](LICENSE).
