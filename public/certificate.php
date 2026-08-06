@@ -62,7 +62,10 @@ if (isset($_FILES['certfile']) && $_FILES['certfile']['error'] === UPLOAD_ERR_OK
 	if ($_FILES['certfile']['size'] > MAX_TOTAL_BYTES) {
 		respond_error('Uploaded file exceeds the ' . MAX_TOTAL_BYTES . '-byte limit.');
 	}
-	$raw = file_get_contents($_FILES['certfile']['tmp_name']);
+	$raw = @file_get_contents($_FILES['certfile']['tmp_name']);
+	if ($raw === false) {
+		respond_error('Could not read the uploaded file.');
+	}
 } elseif (isset($_POST['certtext']) && trim($_POST['certtext']) !== '') {
 	$raw = $_POST['certtext'];
 }
@@ -135,8 +138,14 @@ foreach ($pem_blocks as $index => $pem) {
 
 	// Normalise to PEM regardless of original input format (PEM in, PEM
 	// out unchanged; DER in, PEM out) -- this is what a later build step
-	// would actually write out for CERT=/TRUST=.
-	openssl_x509_export($x509, $normalised_pem);
+	// would actually write out for CERT=/TRUST=. Reset before each call
+	// (rather than just checking the return value) so a failed export
+	// can never silently carry over the previous certificate's PEM from
+	// an earlier loop iteration into this one's response entry.
+	$normalised_pem = null;
+	if (!openssl_x509_export($x509, $normalised_pem)) {
+		respond_error('Certificate ' . ($index + 1) . ' of ' . count($pem_blocks) . ' could not be exported to PEM.');
+	}
 
 	$subject = format_dn($parsed['subject'] ?? array());
 	$issuer = format_dn($parsed['issuer'] ?? array());
