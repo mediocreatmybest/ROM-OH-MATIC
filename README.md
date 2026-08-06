@@ -33,9 +33,9 @@ The Docker image is automatically built and published from `master`. Automated c
 | ----------------------------- | ------------------------------------------ |
 | Docker image build            | Automated on pushes to `master`            |
 | Docker image publication      | Automated as part of the current build job |
-| Container startup test        | [ x ]                                      |
-| HTTP response test            | [ x ]                                      |
-| iPXE artefact generation test | [ x ]                                      |
+| Container startup test        | <ul><li>[x]</li><li>                       |
+| HTTP response test            | <ul><li>[x]</li><li>                       |
+| iPXE artefact generation test | <ul><li>[x]</li><li>                       |
 | Published platform            | `linux/amd64`                              |
 | Current container base        | Ubuntu 24.04 LTS                           |
 
