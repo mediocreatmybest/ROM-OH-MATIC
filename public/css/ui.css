@@ -136,6 +136,24 @@ h3 span {
 	font-size: 14px;
 }
 
+/* Less alarming than .error -- for "heads up, this won't do what you
+ * expect" cases that aren't actually invalid input, just an inert
+ * combination of choices (e.g. certificate trust on a BIOS output
+ * format, which iPXE itself doesn't compile HTTPS support into). */
+.notice {
+	background-color: #fff3cd;
+	border: 1px solid #ffc107;
+	border-radius: 4px;
+	color: #664d03;
+	padding: 6px 10px;
+	font-size: 13px;
+}
+
+.notice strong {
+	display: block;
+	margin-bottom: 2px;
+}
+
 .fetch-status {
 	font-size: 14px;
 	font-style: italic;
@@ -269,6 +287,49 @@ h3 span {
 .option-help-wrap:hover .option-description-popover,
 .option-help-wrap:focus-within .option-description-popover {
 	display: block;
+}
+
+#trust details {
+	font-size: 13px;
+	color: #555;
+	margin: 4px 0;
+}
+
+#trust summary {
+	cursor: pointer;
+	color: #333;
+}
+
+#trust_cert_preview {
+	margin-top: 8px;
+	padding: 8px 10px;
+	background: #fff;
+	border: 1px solid #999;
+	border-radius: 4px;
+	font-size: 13px;
+	line-height: 1.5;
+	max-width: 600px;
+}
+
+#trust_cert_preview .cert-field-name {
+	font-weight: bold;
+}
+
+#trust_cert_preview .cert-fingerprint {
+	font-family: monospace;
+	word-break: break-all;
+}
+
+#trust_cert_preview .cert-block {
+	margin-bottom: 10px;
+	padding-bottom: 10px;
+	border-bottom: 1px solid #eee;
+}
+
+#trust_cert_preview .cert-block:last-child {
+	margin-bottom: 0;
+	padding-bottom: 0;
+	border-bottom: none;
 }
 
 .buildbutton {

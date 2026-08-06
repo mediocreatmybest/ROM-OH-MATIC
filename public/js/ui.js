@@ -23,6 +23,12 @@ onReady(function() {
 
         var roms = []; /* Global Object for roms ID validation */
 
+        /* Set by the "HTTPS certificate trust" section below once a
+         * submitted certificate has been validated by certificate.php;
+         * read by buildcfg(). Normal (non-custom-trust) builds never touch
+         * this. */
+        var trustCertPem = null;
+
         /* Build an <option>, safely -- via textContent/property assignment
          * rather than string concatenation, so a value containing HTML
          * special characters (e.g. an iPXE header comment with a stray "<"
@@ -215,7 +221,7 @@ onReady(function() {
                  * description) and the "input" type (input value comes from
                  * .value, but the help text is still sourced from
                  * .description, same as the original). */
-                function makeTextOptionLabel(name, fieldName, size, fieldValue, descriptionText, trailingPrefix) {
+                function makeTextOptionLabel(name, fieldName, minSize, fieldValue, descriptionText, trailingPrefix) {
                         var desc = (name === descriptionText) ? '' : descriptionText;
                         var label = document.createElement('label');
                         label.className = 'option-row';
@@ -230,7 +236,14 @@ onReady(function() {
                         controlWrap.className = 'option-control';
                         var input = document.createElement('input');
                         input.type = 'text';
-                        input.size = size;
+                        /* minSize is a floor, not the final width -- a fixed
+                         * size=6 for every "short" option left symbolic
+                         * values (e.g. TLS_VERSION_MIN's "TLS_VER1_2",
+                         * LOG_LEVEL's "G_NONE") truncated and unreadable.
+                         * Grow to fit the actual value, capped so a handful
+                         * of unusually long ones (e.g. a full URL) don't
+                         * blow out the layout. */
+                        input.size = Math.max(minSize, Math.min(fieldValue.length + 2, 60));
                         input.placeholder = fieldValue;
                         input.value = fieldValue;
                         input.name = fieldName;
@@ -356,13 +369,27 @@ onReady(function() {
                 }
         });
 
+        /* BIOS (bindir exactly "bin", not "bin-i386-efi"/"bin-x86_64-efi")
+         * builds don't compile in HTTPS at all -- a long-standing iPXE
+         * decision, not a bug -- so certificate trust has no effect there.
+         * Warn rather than hide the section outright, since hiding it would
+         * look like the feature vanished rather than explain why it
+         * doesn't apply. */
+        function updateTrustBiosWarning(outputformat) {
+                var bindir = outputformat.split('/')[0];
+                document.getElementById('trust_bios_warning').style.display =
+                        (bindir === 'bin') ? 'block' : 'none';
+        }
+
         document.getElementById('outputformatadv').addEventListener('change', function() {
                 var outputformat = document.getElementById('outputformatadv').value;
+                updateTrustBiosWarning(outputformat);
                 if (outputformat.indexOf("rom", outputformat.length - 3) !== -1)
                 {	/* If a ROM */
                         document.getElementById('rom').style.display = 'inline';
                         document.getElementById('iface').style.display = 'none';
                         document.getElementById('config').style.display = 'none';
+                        document.getElementById('trust').style.display = 'inline';
                         document.getElementById('embedded').style.display = 'inline';
                         document.getElementById('debug').style.display = 'none';
                         document.getElementById('gitversion').style.display = 'inline';
@@ -373,6 +400,7 @@ onReady(function() {
                         document.getElementById('rom').style.display = 'none';
                         document.getElementById('iface').style.display = 'none';
                         document.getElementById('config').style.display = 'none';
+                        document.getElementById('trust').style.display = 'none';
                         document.getElementById('embedded').style.display = 'none';
                         document.getElementById('debug').style.display = 'none';
                         document.getElementById('gitversion').style.display = 'none';
@@ -383,6 +411,7 @@ onReady(function() {
                         document.getElementById('rom').style.display = 'none';
                         document.getElementById('iface').style.display = 'inline';
                         document.getElementById('config').style.display = 'inline';
+                        document.getElementById('trust').style.display = 'inline';
                         document.getElementById('embedded').style.display = 'inline';
                         document.getElementById('debug').style.display = 'inline';
                         document.getElementById('gitversion').style.display = 'inline';
@@ -390,8 +419,16 @@ onReady(function() {
                 }
         });
 
-        /* Compose build.fcgi url */
-        function buildcfg() {
+        /* Compose build.fcgi url. `omitTrustCert`, when true, leaves out
+         * TRUST_CERT even if custom trust is selected and validated --
+         * used for the "Editable Configuration URL" shown by #save, since
+         * raw certificate PEM data must never end up in a saved/shareable
+         * URL (a future revision could carry a certificate reference
+         * instead, without embedding the certificate itself). The "Direct
+         * buildcfg URL", which goes straight to build.fcgi for an
+         * immediate download, still needs it -- that's the only way the
+         * build actually gets the certificate right now. */
+        function buildcfg(omitTrustCert) {
                 /* Get values from form */
                 var wizard = document.querySelector('input[name=wizardtype]:checked').value;
                 var bindir = "";
@@ -404,7 +441,9 @@ onReady(function() {
                 /* Values are left undecoded here; URLSearchParams.set()
                  * below does the percent-encoding. Previously this used
                  * escape(), which mis-encodes U+0080-U+00FF as invalid
-                 * UTF-8 (see the finding in ARCHITECTURE.md). */
+                 * UTF-8 -- verified against the real backend: escape()
+                 * sends an accented character as a raw Latin-1 byte, which
+                 * the server then reads as corrupted, invalid UTF-8. */
                 var debug = document.getElementById('setdebug').value;
                 var revision = document.getElementById('gitrevision').value;
                 var embed = document.getElementById('embed').value;
@@ -458,6 +497,27 @@ onReady(function() {
                         });
                 }
 
+                /* Custom certificate trust -- only meaningful in the
+                 * advanced wizard. If selected, a validated certificate
+                 * must already be present (see the "HTTPS certificate
+                 * trust" section below); otherwise block the build with an
+                 * inline error, the same way an invalid PCI ID does above,
+                 * rather than silently submitting standard trust instead. */
+                var trustCertToSend = null;
+                if (wizard == "advanced") {
+                        var trustMode = document.querySelector('input[name=trustmode]:checked').value;
+                        if (trustMode == "custom") {
+                                if (!trustCertPem) {
+                                        var trustStatus = document.getElementById('trust_cert_status');
+                                        trustStatus.textContent = 'Provide and validate a certificate before building, or switch back to standard trust.';
+                                        trustStatus.style.display = '';
+                                        trustStatus.classList.add('error');
+                                        return;
+                                }
+                                trustCertToSend = trustCertPem;
+                        }
+                }
+
                 var params = new URLSearchParams();
                 params.set('BINARY', binary);
                 params.set('BINDIR', bindir);
@@ -465,8 +525,9 @@ onReady(function() {
                 params.set('DEBUG', debug);
                 params.set('EMBED.00script.ipxe', embed);
                 optionEntries.forEach(function(entry) { params.append(entry[0], entry[1]); });
+                if (trustCertToSend && !omitTrustCert) { params.set('TRUST_CERT', trustCertToSend); }
 
-                console.log('{ BINARY: ['+ binary +'], BINDIR: ['+ bindir +'], DEBUG: ['+ debug +'], REVISION: ['+ revision +'], EMBED: ['+ embed +'] , OPTIONS: ['+ optionEntries.length +' changed]}');
+                console.log('{ BINARY: ['+ binary +'], BINDIR: ['+ bindir +'], DEBUG: ['+ debug +'], REVISION: ['+ revision +'], EMBED: ['+ embed +'] , OPTIONS: ['+ optionEntries.length +' changed], TRUST_CERT: ['+ (trustCertToSend ? 'set' : 'none') +']}');
 
                 return 'build.fcgi?' + params.toString();
         };
@@ -497,11 +558,11 @@ onReady(function() {
 		 * which left checkbox/text option values undecoded -- e.g. a
 		 * saved "My Product Name" restored as the literal string
 		 * "My%20Product%20Name"). Its decoding is also lenient rather
-		 * than throwing on malformed input, so a legacy escape()-style
-		 * saved URL (see ARCHITECTURE.md) won't crash the restore, even
-		 * though characters outside plain ASCII in such a URL may not
-		 * come back exactly as originally typed -- that data was already
-		 * corrupted at save time by the bug this fixes. */
+		 * than throwing on malformed input, so a saved URL from before
+		 * the escape()-to-encodeURIComponent() fix above won't crash the
+		 * restore, even though characters outside plain ASCII in such a
+		 * URL may not come back exactly as originally typed -- that data
+		 * was already corrupted at save time by the bug this fixes. */
 		var searchParams = new URLSearchParams(window.location.search);
 		if (!searchParams.toString()) return;
 		var args = {};
@@ -648,8 +709,18 @@ onReady(function() {
                         var data = "<h2>Direct buildcfg URL</h2><p>Use this URL to directly retreive your binary for later use:</p>";
                         data += "<br/>" + baseURI + config;
                         data += "<br/><h2>Editable Configuration URL</h2><p>Use this URL to adjust your binary's setup:</p>";
-                        var editcfg = config.replace(/^[^?]*\?/,'?');
+                        /* Built as a separate buildcfg() call (omitTrustCert),
+                         * not derived from `config` above -- a custom trust
+                         * certificate's raw PEM must never end up in a
+                         * saved/shareable URL. If custom trust was used,
+                         * reopening this URL restores everything else, but
+                         * the certificate will need re-adding by hand (there's
+                         * no saved-profile mechanism for it yet). */
+                        var editcfg = buildcfg(true).replace(/^[^?]*\?/,'?');
                         data += "<br/>" + baseURI + editcfg;
+                        if (config.indexOf('TRUST_CERT=') !== -1) {
+                                data += "<br/><p><em>Note: the certificate you provided is not included in the editable URL -- you'll need to re-add it if you reopen this link.</em></p>";
+                        }
                         content.innerHTML = data;
                         popup.showModal();
                 });
@@ -725,6 +796,131 @@ onReady(function() {
                         handleFile(evt.dataTransfer.files[0]);
                         document.getElementById('embedfile').value = "";
                 }, false);
+        })();
+
+        /* Advanced wizard's "HTTPS certificate trust" section -- validates
+         * a user-supplied certificate (file or pasted text) against
+         * certificate.php and renders a metadata preview. The validated,
+         * normalised PEM is stored in the outer trustCertPem variable for
+         * buildcfg() to pick up; nothing here ever writes it into a URL
+         * directly (see the note on buildcfg()'s omitTrustCert). */
+        (function() {
+                var statusEl = document.getElementById('trust_cert_status');
+                var previewEl = document.getElementById('trust_cert_preview');
+                var fileInput = document.getElementById('trust_cert_file');
+                var textInput = document.getElementById('trust_cert_text');
+
+                function setStatus(text, isError) {
+                        if (!text) {
+                                statusEl.style.display = 'none';
+                                return;
+                        }
+                        statusEl.textContent = text;
+                        statusEl.style.display = '';
+                        statusEl.classList.toggle('error', !!isError);
+                }
+
+                function clearPreview() {
+                        previewEl.style.display = 'none';
+                        previewEl.replaceChildren();
+                        trustCertPem = null;
+                }
+
+                function addField(block, label, value) {
+                        var p = document.createElement('p');
+                        var name = document.createElement('span');
+                        name.className = 'cert-field-name';
+                        name.textContent = label + ': ';
+                        p.appendChild(name);
+                        p.appendChild(document.createTextNode(value));
+                        block.appendChild(p);
+                }
+
+                function renderPreview(certificates) {
+                        var frag = document.createDocumentFragment();
+                        certificates.forEach(function(cert) {
+                                var block = document.createElement('div');
+                                block.className = 'cert-block';
+                                addField(block, 'Subject', cert.subject);
+                                addField(block, 'Issuer', cert.issuer);
+                                addField(block, 'Valid', new Date(cert.validFrom).toLocaleDateString() +
+                                        ' to ' + new Date(cert.validTo).toLocaleDateString() +
+                                        (cert.expired ? ' (EXPIRED)' : cert.notYetValid ? ' (not yet valid)' : ''));
+                                addField(block, 'CA certificate', cert.isCa ? 'Yes' : 'No');
+                                addField(block, 'Self-signed', cert.selfSigned ? 'Yes' : 'No');
+                                var sans = cert.subjectAltNames.dns.concat(cert.subjectAltNames.ip);
+                                if (sans.length) { addField(block, 'Subject Alt Names', sans.join(', ')); }
+                                var fpP = document.createElement('p');
+                                var fpName = document.createElement('span');
+                                fpName.className = 'cert-field-name';
+                                fpName.textContent = 'SHA-256: ';
+                                fpP.appendChild(fpName);
+                                var fpVal = document.createElement('span');
+                                fpVal.className = 'cert-fingerprint';
+                                fpVal.textContent = cert.sha256Fingerprint;
+                                fpP.appendChild(fpVal);
+                                block.appendChild(fpP);
+                                frag.appendChild(block);
+                        });
+                        previewEl.replaceChildren(frag);
+                        previewEl.style.display = '';
+                }
+
+                function validate(formData) {
+                        setStatus('Validating certificate...', false);
+                        clearPreview();
+                        fetch('certificate.php', { method: 'POST', body: formData })
+                                .then(function(response) { return response.json(); })
+                                .then(function(data) {
+                                        if (data.error) {
+                                                setStatus(data.error, true);
+                                                return;
+                                        }
+                                        var expired = data.certificates.some(function(c) { return c.expired; });
+                                        trustCertPem = data.certificates.map(function(c) { return c.pem; }).join('\n');
+                                        renderPreview(data.certificates);
+                                        setStatus(expired ?
+                                                'Validated, but at least one certificate has expired.' :
+                                                'Certificate validated.', expired);
+                                })
+                                .catch(function(err) {
+                                        setStatus('Could not validate certificate: ' + err.message, true);
+                                });
+                }
+
+                fileInput.addEventListener('change', function(evt) {
+                        var file = evt.target.files[0];
+                        if (!file) { return; }
+                        textInput.value = '';
+                        var formData = new FormData();
+                        formData.append('certfile', file);
+                        validate(formData);
+                });
+
+                /* Fires when the field loses focus, not on every keystroke
+                 * -- validating a certificate is a network round trip, and
+                 * nothing needs live-as-you-type feedback here. */
+                textInput.addEventListener('blur', function(evt) {
+                        var text = evt.target.value.trim();
+                        if (!text) { clearPreview(); setStatus(null); return; }
+                        fileInput.value = '';
+                        var formData = new FormData();
+                        formData.append('certtext', text);
+                        validate(formData);
+                });
+
+                document.querySelectorAll('input[name=trustmode]').forEach(function(radio) {
+                        radio.addEventListener('change', function() {
+                                var custom = document.querySelector('input[name=trustmode]:checked').value === 'custom';
+                                document.getElementById('trust_custom_fields').style.display = custom ? '' : 'none';
+                                if (!custom) {
+                                        fileInput.value = '';
+                                        textInput.value = '';
+                                        clearPreview();
+                                        setStatus(null);
+                                }
+                        });
+                });
         })();
 
         // Check for the various File API support.

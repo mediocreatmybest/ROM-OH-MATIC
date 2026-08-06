@@ -531,6 +531,86 @@ sub embed {
 
 ###############################################################################
 #
+# Handle custom certificate trust: the submitted certificate material is
+# mapped to both CERT and TRUST (the simple, FOG-compatible way of using
+# iPXE's trust build options -- separately configurable CERT/TRUST, and
+# TRUST_EXT for firmware-supplied trust, are not implemented here). Absence
+# of TRUST_CERT means standard iPXE trust, unchanged from before this
+# existed.
+#
+# This endpoint is directly reachable on its own, not just via
+# certificate.php's preview validation, so it must not rely on that
+# validation alone -- every check here is repeated independently.
+#
+
+use constant TRUST_MAX_BYTES => 65536; # 64 KiB -- keep in sync with
+                                        # public/certificate.php's
+                                        # MAX_TOTAL_BYTES
+use constant TRUST_MAX_CERTS => 8;     # keep in sync with certificate.php's
+                                        # MAX_CERT_COUNT
+
+sub trust_cert {
+  my $cgi = shift;
+  my $params = shift;
+
+  my $pem = $params->{TRUST_CERT};
+  delete $params->{TRUST_CERT};
+  return unless defined $pem && length $pem;
+
+  die "Certificate data exceeds the ".TRUST_MAX_BYTES()."-byte limit\n"
+      if length ( $pem ) > TRUST_MAX_BYTES;
+
+  # Never accept private key material -- this is a public-certificate-
+  # trust feature, not a client-key manager.
+  foreach my $marker ( "-----BEGIN PRIVATE KEY-----",
+			"-----BEGIN RSA PRIVATE KEY-----",
+			"-----BEGIN EC PRIVATE KEY-----",
+			"-----BEGIN ENCRYPTED PRIVATE KEY-----",
+			"-----BEGIN DSA PRIVATE KEY-----" ) {
+    die "Private key material was detected and is not accepted\n"
+	if index ( $pem, $marker ) >= 0;
+  }
+
+  # Extract individual PEM blocks -- a bundle (e.g. a private root CA plus
+  # an intermediate CA it signed) is supported, not just a single
+  # certificate.
+  my @blocks = ( $pem =~
+		 /(-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----)/sg );
+  die "No PEM certificate blocks found in TRUST_CERT\n" unless @blocks;
+  die "Too many certificates (".scalar ( @blocks ).
+      "); the limit is ".TRUST_MAX_CERTS()."\n" if @blocks > TRUST_MAX_CERTS;
+
+  # Dedicated, per-build temporary directory with an application-
+  # generated filename -- never derived from user input.
+  my $trustdirfh = File::Temp->newdir ( "ipxe-trust-XXXXXX", DIR => $tmpdir,
+					 CLEANUP => ! $keep );
+  my $trustdir = $trustdirfh->dirname;
+
+  # Validate every block is genuinely parseable X.509 certificate
+  # material. `openssl x509 -in` only checks the first certificate in a
+  # file, so a multi-certificate bundle needs one temporary file and one
+  # check per block.
+  for ( my $i = 0; $i < @blocks; $i++ ) {
+    my $checkfile = catfile ( $trustdir, "check-".$i.".pem" );
+    open my $checkfh, ">", $checkfile
+	or die "Could not create ".$checkfile.": $!\n";
+    print $checkfh $blocks[$i];
+    close $checkfh;
+    systemx ( "openssl", "x509", "-in", $checkfile, "-noout" );
+    unlink $checkfile;
+  }
+
+  my $trustfile = catfile ( $trustdir, "trust.pem" );
+  warn "Temporary trust certificate: ".$trustfile."\n" if $verbosity > 0;
+  open my $fh, ">", $trustfile or die "Could not create ".$trustfile.": $!\n";
+  print $fh join ( "\n", @blocks )."\n";
+  close $fh;
+
+  return ( $trustfile, $trustdirfh );
+}
+
+###############################################################################
+#
 # Handle build request
 #
 
@@ -544,6 +624,13 @@ sub build {
     warn "Path: ".$path_info."\n";
     warn "Parameters: \n";
     foreach my $key ( sort keys %$params ) {
+      # Certificate/key material must never reach logs or the client-
+      # visible debug log on failure. Confirm the field was present
+      # without echoing its content.
+      if ( $key eq "TRUST_CERT" ) {
+	warn "  ".$key." = <".length ( $params->{$key} )." bytes, redacted>\n";
+	next;
+      }
       warn "  ".$key." = ".$params->{$key}."\n";
     }
   }
@@ -585,6 +672,9 @@ sub build {
 
   # Parse EMBED, if present
   ( my $embed, my $embeddirfh ) = embed ( $cgi, $params );
+
+  # Parse TRUST_CERT, if present (custom certificate trust)
+  ( my $trustfile, my $trustdirfh ) = trust_cert ( $cgi, $params );
 
   # Canonicalise git revision
   warn "Canonicalising revision ".$revision."...\n" if $verbosity > 1;
@@ -631,6 +721,7 @@ sub build {
 	    ( $concurrency ? ( "-j", $concurrency ) : () ),
 	    ( $debug ? ( "DEBUG=".$debug ) : () ),
 	    ( $embed ? ( "EMBEDDED_IMAGE=".$embed ) : () ),
+	    ( $trustfile ? ( "CERT=".$trustfile, "TRUST=".$trustfile ) : () ),
 	    $target );
 
   # Return target
