@@ -170,69 +170,112 @@ onReady(function() {
                 subtitle.TLS = 'TLS configuration:';
                 subtitle.OCSP = 'OCSP Configuration:'
 
-                /* <label> wrapping a text <input>, then the description on
-                 * its own line, then <br/><br/>. Shared by the BANNER/hex-
+                /* A small "?" icon that reveals the option's description in
+                 * a popover on hover, click, or keyboard focus -- CSS-only
+                 * (:hover / :focus-within in ui.css), no JS event handling
+                 * needed, so hover/click/keyboard-Tab all work identically
+                 * without three separate code paths. `idBase` must already
+                 * be a safe id fragment (fieldName is file+"/"+NAME, both
+                 * always valid C-identifier-like strings from iPXE's own
+                 * headers, with "/" swapped out since it's an unusual id
+                 * character to carry through, even though technically legal
+                 * in an HTML id). Returns null if there's nothing to show. */
+                function makeHelpIcon(idBase, text) {
+                        if (!text) { return null; }
+                        var id = 'opthelp-' + idBase.replace(/[^A-Za-z0-9_-]/g, '-');
+                        var wrap = document.createElement('span');
+                        wrap.className = 'option-help-wrap';
+                        var button = document.createElement('button');
+                        button.type = 'button';
+                        button.className = 'option-help';
+                        button.textContent = '?';
+                        button.setAttribute('aria-describedby', id);
+                        button.setAttribute('aria-label', 'About ' + idBase);
+                        var popover = document.createElement('span');
+                        popover.className = 'option-description-popover';
+                        popover.id = id;
+                        popover.setAttribute('role', 'tooltip');
+                        popover.textContent = text;
+                        wrap.appendChild(button);
+                        wrap.appendChild(popover);
+                        return wrap;
+                }
+
+                /* <label class="option-row"> with the option name on its own
+                 * line and the input + "?" icon directly below it, always in
+                 * that structure regardless of name length -- previously the
+                 * name, input, and icon were just inline content, so
+                 * whether the input/icon wrapped onto a new line depended on
+                 * how long the name text was relative to the available
+                 * width, giving an inconsistent row-to-row layout. Fixed
+                 * spacing/alignment now comes entirely from CSS
+                 * (.option-row/.option-name/.option-control in ui.css)
+                 * instead of manual <br> tags. Shared by the BANNER/hex-
                  * value "define" overrides (input value comes from the
                  * description) and the "input" type (input value comes from
-                 * .value, but the trailing description text is still
-                 * sourced from .description, same as the original). The
-                 * description is a separate block element rather than
-                 * running on immediately after the input -- some iPXE
-                 * header comments (e.g. PRODUCT_ERROR_URI) are long
-                 * paragraphs, which read as a wall of text jammed against a
-                 * 6-character-wide box when left inline. */
+                 * .value, but the help text is still sourced from
+                 * .description, same as the original). */
                 function makeTextOptionLabel(name, fieldName, size, fieldValue, descriptionText, trailingPrefix) {
                         var desc = (name === descriptionText) ? '' : descriptionText;
                         var label = document.createElement('label');
+                        label.className = 'option-row';
                         label.setAttribute('for', name);
-                        label.appendChild(document.createTextNode(name + ': '));
+
+                        var nameEl = document.createElement('span');
+                        nameEl.className = 'option-name';
+                        nameEl.textContent = name + ':';
+                        label.appendChild(nameEl);
+
+                        var controlWrap = document.createElement('span');
+                        controlWrap.className = 'option-control';
                         var input = document.createElement('input');
                         input.type = 'text';
                         input.size = size;
                         input.placeholder = fieldValue;
                         input.value = fieldValue;
                         input.name = fieldName;
-                        label.appendChild(input);
-                        var descText = trailingPrefix + desc;
-                        if (descText) {
-                                var descEl = document.createElement('div');
-                                descEl.className = 'option-description';
-                                descEl.textContent = descText;
-                                label.appendChild(descEl);
-                        }
-                        label.appendChild(document.createElement('br'));
-                        label.appendChild(document.createElement('br'));
+                        controlWrap.appendChild(input);
+                        var helpIcon = makeHelpIcon(fieldName, trailingPrefix + desc);
+                        if (helpIcon) { controlWrap.appendChild(helpIcon); }
+                        label.appendChild(controlWrap);
+
                         return label;
                 }
 
-                /* <label> wrapping a checkbox <input> and a help link, then
-                 * the description on its own line, then <br/><br/>. Shared
-                 * by "define" (checked) and "undef" (unchecked) boolean
-                 * options -- same rationale as makeTextOptionLabel() above
-                 * for putting the description on its own line. */
+                /* <label class="option-row option-row-checkbox">: checkbox,
+                 * help link, and "?" icon together on one line -- unlike the
+                 * text-option row above, there's no separate "name" line
+                 * needed here, since "[checkbox] NAME_LINK" is already short
+                 * and consistent regardless of which option it is. Still
+                 * uses the same .option-row spacing as the text rows so
+                 * every row in the list has the same vertical rhythm. The
+                 * external ipxe.org link and the local description popover
+                 * are complementary, not duplicates -- the link points at
+                 * the full upstream docs page, the popover shows the
+                 * description already parsed out of this build's headers. */
                 function makeCheckboxOptionLabel(name, fieldName, checked, description) {
                         var label = document.createElement('label');
+                        label.className = 'option-row option-row-checkbox';
                         label.setAttribute('for', name);
+
+                        var controlWrap = document.createElement('span');
+                        controlWrap.className = 'option-control';
                         var input = document.createElement('input');
                         input.type = 'checkbox';
                         input.value = checked ? '1' : '0';
                         input.name = fieldName;
                         input.checked = checked;
-                        label.appendChild(input);
+                        controlWrap.appendChild(input);
                         var link = document.createElement('a');
                         link.className = 'help_buildcfg';
                         link.href = 'http://www.ipxe.org/buildcfg/' + name;
                         link.target = '_blank';
                         link.textContent = name;
-                        label.appendChild(link);
-                        if (description) {
-                                var descEl = document.createElement('div');
-                                descEl.className = 'option-description';
-                                descEl.textContent = description;
-                                label.appendChild(descEl);
-                        }
-                        label.appendChild(document.createElement('br'));
-                        label.appendChild(document.createElement('br'));
+                        controlWrap.appendChild(link);
+                        var helpIcon = makeHelpIcon(fieldName, description);
+                        if (helpIcon) { controlWrap.appendChild(helpIcon); }
+                        label.appendChild(controlWrap);
+
                         return label;
                 }
 
