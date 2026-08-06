@@ -703,7 +703,7 @@ onReady(function() {
                                 document.body.appendChild(link);
                                 link.click();
                                 link.remove();
-                                URL.revokeObjectURL(objectUrl);
+                                setTimeout(function() { URL.revokeObjectURL(objectUrl); }, 1000);
                         });
                 }).catch(function(err) {
                         showBuildError(String(err));
