@@ -11,7 +11,7 @@ A web-based user interface that provide a way for the user to select any relevan
 ## How
 
 The user interface is using HTML, CSS, and plain Javascript (no frameworks or build step) with a suitable server-side language (such as Perl and PHP).
-All GUI options (git version/nics list/compile options) are generated dynamicaly using PHP.
+All GUI options (git version/nics list/compile options) are generated dynamically using PHP.
 The build.fcgi script is written in Perl and was wrote by Michael Brown.
 
 [![Docker build](https://github.com/mediocreatmybest/ROM-OH-MATIC/actions/workflows/docker.yml/badge.svg?branch=master)](https://github.com/mediocreatmybest/ROM-OH-MATIC/actions/workflows/docker.yml)
@@ -23,7 +23,7 @@ The build.fcgi script is written in Perl and was wrote by Michael Brown.
 
 Named after the great ROM-O-MATIC website, this web interface simplifies building iPXE binaries, allowing users to select relevant iPXE build options, provide an embedded script, and generate the required output without building it manually from the command line.
 
-This repository is not part of, or endorsed by, the official [iPXE project](https://ipxe.org/), I don't have the neccessary skills for that!
+This repository is not part of, or endorsed by, the official [iPXE project](https://ipxe.org/), I don't have the necessary skills for that!
 
 ## Current status
 
@@ -33,9 +33,9 @@ The Docker image is automatically built and published from `master`. Automated c
 | ----------------------------- | ------------------------------------------ |
 | Docker image build            | Automated on pushes to `master`            |
 | Docker image publication      | Automated as part of the current build job |
-| Container startup test        | TBD                                        |
-| HTTP response test            | TBD                                        |
-| iPXE artefact generation test | TBD                                        |
+| Container startup test        | [ x ]                                      |
+| HTTP response test            | [ x ]                                      |
+| iPXE artefact generation test | [ x ]                                      |
 | Published platform            | `linux/amd64`                              |
 | Current container base        | Ubuntu 24.04 LTS                           |
 
@@ -145,6 +145,6 @@ Only reach for this on a network you already trust to be doing the interception 
 
 Any fixes or pull requests are welcome. Please keep changes small enough for me and test independently.
 
-## Licence
+## License
 
 This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [LICENSE](LICENSE).
