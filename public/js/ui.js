@@ -236,6 +236,7 @@ onReady(function() {
                         controlWrap.className = 'option-control';
                         var input = document.createElement('input');
                         input.type = 'text';
+                        input.id = name;
                         /* minSize is a floor, not the final width -- a fixed
                          * size=6 for every "short" option left symbolic
                          * values (e.g. TLS_VERSION_MIN's "TLS_VER1_2",
@@ -275,6 +276,7 @@ onReady(function() {
                         controlWrap.className = 'option-control';
                         var input = document.createElement('input');
                         input.type = 'checkbox';
+                        input.id = name;
                         input.value = checked ? '1' : '0';
                         input.name = fieldName;
                         input.checked = checked;

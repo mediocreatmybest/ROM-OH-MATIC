@@ -10,7 +10,7 @@ A web-based user interface that provide a way for the user to select any relevan
 
 ## How
 
-The user interface is using HTML, CSS, and plain Javascript (no frameworks or build step) with a suitable server-side language (such as Perl and PHP).
+The user interface is using HTML, CSS, and plain JavaScript (no frameworks or build step) with a suitable server-side language (such as Perl and PHP).
 All GUI options (git version/nics list/compile options) are generated dynamically using PHP.
 The build.fcgi script is written in Perl and was wrote by Michael Brown.
 

@@ -53,11 +53,21 @@ DIRECTIVE_RE = re.compile(
 # identifier, an operator this doesn't handle, a genuine syntax error --
 # returns None, and the caller falls back to showing the original
 # expression rather than ever guessing at a wrong number.
+def _c_div(a, b):
+    """C-style integer division: truncates toward zero (Python's `//`
+    instead floors toward negative infinity, e.g. -3 // 2 == -2, not -1)."""
+    q = a // b
+    r = a - q * b
+    if r and (a < 0) != (b < 0):
+        q += 1
+    return q
+
+
 _SAFE_BINOPS = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
     ast.Mult: operator.mul,
-    ast.Div: operator.truediv,
+    ast.Div: _c_div,
     ast.FloorDiv: operator.floordiv,
 }
 _SAFE_UNARYOPS = {

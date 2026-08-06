@@ -218,6 +218,37 @@ jobs:
             exit 1
           fi
 
+      # The positive case above proves TRUST_CERT works via POST; this
+      # proves build.fcgi's own request-method check actually rejects it
+      # over GET too, rather than relying solely on the frontend never
+      # constructing such a URL (see trust_cert() in public/build.fcgi) --
+      # a GET query string still lands in browser history and front-end
+      # access logs regardless of what the frontend intends.
+      - name: Submit TRUST_CERT via GET and confirm rejection
+        run: |
+          status=$(curl -s --max-time 30 \
+            -o /tmp/get-trust-response.txt \
+            -w '%{http_code}' \
+            --get \
+            --data-urlencode 'BINARY=snponly.efi' \
+            --data-urlencode 'BINDIR=bin-x86_64-efi' \
+            --data-urlencode 'REVISION=master' \
+            --data-urlencode 'DEBUG=' \
+            --data-urlencode 'EMBED.00script.ipxe=' \
+            --data-urlencode 'TRUST_CERT@/tmp/ci-root-cert.pem' \
+            'http://localhost:8080/build.fcgi')
+          echo "Response status: ${status}"
+          if [ "$status" = "200" ]; then
+            echo "TRUST_CERT over GET was accepted -- build.fcgi should reject it"
+            cat /tmp/get-trust-response.txt
+            exit 1
+          fi
+          grep -qi 'POST' /tmp/get-trust-response.txt || {
+            echo "Rejected, but not with the expected POST-required error"
+            cat /tmp/get-trust-response.txt
+            exit 1
+          }
+
       - name: Print container logs on failure
         if: failure()
         run: docker logs rom-o-matic-smoke

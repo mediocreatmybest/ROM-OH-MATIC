@@ -557,6 +557,16 @@ sub trust_cert {
   delete $params->{TRUST_CERT};
   return unless defined $pem && length $pem;
 
+  # TRUST_CERT must never travel in a URL -- a GET request puts it in the
+  # query string, which lands in browser history and in front-end web-
+  # server/proxy access logs before the redaction below ever runs. The
+  # frontend only ever POSTs it (see public/js/ui.js), but this endpoint
+  # is directly reachable on its own, so enforce that server-side too
+  # rather than relying on every caller to already be well-behaved.
+  die "TRUST_CERT must be submitted via POST, not ".
+      ( $cgi->request_method() // "GET" )."\n"
+      unless uc ( $cgi->request_method() // "" ) eq "POST";
+
   die "Certificate data exceeds the ".TRUST_MAX_BYTES()."-byte limit\n"
       if length ( $pem ) > TRUST_MAX_BYTES;
 
