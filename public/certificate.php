@@ -37,7 +37,9 @@ function format_dn($dn) {
 	$parts = array();
 	foreach ($order as $key) {
 		if (isset($dn[$key])) {
-			$parts[] = $key . '=' . $dn[$key];
+			$value = $dn[$key];
+			if (is_array($value)) { $value = implode(',', $value); }
+			$parts[] = $key . '=' . $value;
 			unset($dn[$key]);
 		}
 	}

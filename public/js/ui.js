@@ -419,16 +419,18 @@ onReady(function() {
                 }
         });
 
-        /* Compose build.fcgi url. `omitTrustCert`, when true, leaves out
-         * TRUST_CERT even if custom trust is selected and validated --
-         * used for the "Editable Configuration URL" shown by #save, since
-         * raw certificate PEM data must never end up in a saved/shareable
-         * URL (a future revision could carry a certificate reference
-         * instead, without embedding the certificate itself). The "Direct
-         * buildcfg URL", which goes straight to build.fcgi for an
-         * immediate download, still needs it -- that's the only way the
-         * build actually gets the certificate right now. */
-        function buildcfg(omitTrustCert) {
+        /* Compose the build.fcgi parameters. `omitTrustCert`, when true,
+         * leaves out TRUST_CERT even if custom trust is selected and
+         * validated -- used for the "Editable Configuration URL" shown by
+         * #save, since raw certificate PEM data must never end up in a
+         * saved/shareable URL (a future revision could carry a certificate
+         * reference instead, without embedding the certificate itself).
+         * The actual build submission (see the #ipxeimage submit handler
+         * below) always needs it when custom trust is selected, since
+         * that's the only way the build gets the certificate. Returns a
+         * URLSearchParams, or undefined if the current form state is
+         * invalid (an inline error has already been shown in that case). */
+        function buildcfgParams(omitTrustCert) {
                 /* Get values from form */
                 var wizard = document.querySelector('input[name=wizardtype]:checked').value;
                 var bindir = "";
@@ -529,7 +531,16 @@ onReady(function() {
 
                 console.log('{ BINARY: ['+ binary +'], BINDIR: ['+ bindir +'], DEBUG: ['+ debug +'], REVISION: ['+ revision +'], EMBED: ['+ embed +'] , OPTIONS: ['+ optionEntries.length +' changed], TRUST_CERT: ['+ (trustCertToSend ? 'set' : 'none') +']}');
 
-                return 'build.fcgi?' + params.toString();
+                return params;
+        };
+
+        /* String form of buildcfgParams(), used only for the cert-free
+         * "Editable Configuration URL" -- the actual build submission below
+         * posts buildcfgParams() as form data instead, so a certificate
+         * never has to travel in a URL. */
+        function buildcfg(omitTrustCert) {
+                var params = buildcfgParams(omitTrustCert);
+                return params ? 'build.fcgi?' + params.toString() : undefined;
         };
 
 	/* Update fields with defaults from current URL */
@@ -644,13 +655,57 @@ onReady(function() {
 		});
 	}
 
+        /* Shows a build failure (build.fcgi's 500 response body) in the
+         * same <dialog> the About/Save popups use, since a failed
+         * background fetch() would otherwise fail silently instead of
+         * leaving the user on an error page the way the old GET navigation
+         * did. */
+        function showBuildError(message) {
+                var popup = document.getElementById('about_pop_up');
+                var content = popup.querySelector('.content');
+                content.innerHTML = '';
+                var heading = document.createElement('h2');
+                heading.textContent = 'Build failed';
+                var pre = document.createElement('pre');
+                pre.textContent = message;
+                content.appendChild(heading);
+                content.appendChild(pre);
+                popup.showModal();
+        }
+
         document.getElementById('ipxeimage').addEventListener('submit', function(event) {
                 /* stop form from submitting normally */
                 event.preventDefault();
-                var url = buildcfg();
-                if (url) {
-                         window.location.href = url;
-                };
+                var params = buildcfgParams();
+                if (!params) { return; }
+                var formData = new FormData();
+                params.forEach(function(value, key) { formData.append(key, value); });
+                /* POST, not the previous GET navigation -- a custom trust
+                 * certificate's PEM (up to 64 KiB) must never travel in a
+                 * URL: query strings end up in browser history and in
+                 * front-end web-server/proxy access logs before build.fcgi's
+                 * own request-parameter redaction ever gets a chance to
+                 * apply. */
+                fetch('build.fcgi', { method: 'POST', body: formData }).then(function(response) {
+                        if (!response.ok) {
+                                return response.text().then(showBuildError);
+                        }
+                        var disposition = response.headers.get('Content-Disposition') || '';
+                        var match = /filename="?([^";]+)"?/.exec(disposition);
+                        var filename = match ? match[1] : 'ipxe.bin';
+                        return response.blob().then(function(blob) {
+                                var objectUrl = URL.createObjectURL(blob);
+                                var link = document.createElement('a');
+                                link.href = objectUrl;
+                                link.download = filename;
+                                document.body.appendChild(link);
+                                link.click();
+                                link.remove();
+                                URL.revokeObjectURL(objectUrl);
+                        });
+                }).catch(function(err) {
+                        showBuildError(String(err));
+                });
         });
 
 
@@ -704,13 +759,19 @@ onReady(function() {
                 document.getElementById('save').addEventListener('click', function(e) {
                         e.preventDefault();
                         var baseURI = document.baseURI.replace(window.location.search,'').replace(/index\.html$/,'');
-                        var config = buildcfg();
-                        if (!config) { return; }
-                        var data = "<h2>Direct buildcfg URL</h2><p>Use this URL to directly retreive your binary for later use:</p>";
-                        data += "<br/>" + baseURI + config;
-                        data += "<br/><h2>Editable Configuration URL</h2><p>Use this URL to adjust your binary's setup:</p>";
+                        /* Validate current form state (this is also where an
+                         * invalid PCI ID or a missing/unvalidated trust
+                         * certificate shows its inline error) without
+                         * building a cert-bearing URL -- raw certificate PEM
+                         * must never appear in a saved/shareable link, and
+                         * since builds are POSTed now, there's no cert-bearing
+                         * direct URL to offer anyway. */
+                        var params = buildcfgParams();
+                        if (!params) { return; }
+                        var hasTrustCert = params.has('TRUST_CERT');
+                        var data = "<h2>Editable Configuration URL</h2><p>Use this URL to adjust your binary's setup:</p>";
                         /* Built as a separate buildcfg() call (omitTrustCert),
-                         * not derived from `config` above -- a custom trust
+                         * not derived from `params` above -- a custom trust
                          * certificate's raw PEM must never end up in a
                          * saved/shareable URL. If custom trust was used,
                          * reopening this URL restores everything else, but
@@ -718,8 +779,8 @@ onReady(function() {
                          * no saved-profile mechanism for it yet). */
                         var editcfg = buildcfg(true).replace(/^[^?]*\?/,'?');
                         data += "<br/>" + baseURI + editcfg;
-                        if (config.indexOf('TRUST_CERT=') !== -1) {
-                                data += "<br/><p><em>Note: the certificate you provided is not included in the editable URL -- you'll need to re-add it if you reopen this link.</em></p>";
+                        if (hasTrustCert) {
+                                data += "<br/><p><em>Note: the certificate you provided is not included in this URL -- you'll need to re-add it if you reopen this link.</em></p>";
                         }
                         content.innerHTML = data;
                         popup.showModal();
