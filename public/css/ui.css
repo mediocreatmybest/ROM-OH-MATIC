@@ -10,7 +10,15 @@
 /* Reserve the scrollbar's width up front so switching between the
  * Standard and Advanced wizard forms (which differ a lot in height)
  * never shifts the floated #wrapper/#notes layout sideways just because
- * the page crossed the overflow threshold and a scrollbar popped in. */
+ * the page crossed the overflow threshold and a scrollbar popped in.
+ * Trade-off: this reserves the gutter by shrinking the initial
+ * containing block itself, so h1's background bar sits that same
+ * amount short of the true edge in every browser tested (Chromium and
+ * Firefox both tie 100vw to that same reduced block, so there's no
+ * pure-CSS way to bleed it back out -- confirmed by testing, not left
+ * unfixed by oversight). A few px of page background next to the
+ * header was judged less noticeable than either the original jump or
+ * an always-visible scrollbar track on pages with nothing to scroll. */
 html {
 	scrollbar-gutter: stable;
 }
