@@ -3,8 +3,8 @@
  * Dynamic iPXE image generator
  *
  * Copyright (C) 2012-2021 Francois Lacroix. All Rights Reserved.
- * Website: http://ipxe.org, https://github.com/xbgmsharp/ipxe-buildweb
- * License: GNU General Public License version 3 or later; see LICENSE.txt
+ * Website: https://ipxe.org, https://github.com/xbgmsharp/ipxe-buildweb
+ * License: GNU General Public License version 3 or later; see LICENSE
  * ================================================================================
  */
 body {
@@ -100,12 +100,6 @@ h3 span {
 	color: rgb(187, 187, 187);
 }
 
-#W3valid {
-	position: fixed;
-	right: 0px;
-	bottom: 0px;
-}
-
 .help {
 	cursor: help;
 	color: #666;
@@ -191,7 +185,7 @@ h3 span {
 	bottom: 50%;
 }
 
-#result,#build,#gitversion,#debug,#embedded {
+#build,#gitversion,#debug,#embedded {
 	display: none;
 }
 

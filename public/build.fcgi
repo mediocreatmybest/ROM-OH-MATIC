@@ -8,8 +8,8 @@
 # Dynamic iPXE image generator
 #
 # Copyright (C) 2012-2021 Francois Lacroix. All Rights Reserved.
-# License:  GNU General Public License version 3 or later; see LICENSE.txt
-# Website:  http://ipxe.org, https://github.com/xbgmsharp/ipxe-buildweb
+# License:  GNU General Public License version 3 or later; see LICENSE
+# Website:  https://ipxe.org, https://github.com/xbgmsharp/ipxe-buildweb
 #------------------------------------------------------------------------
 ### Dependencies
 # apt-get install liburi-perl libfcgi-perl libconfig-inifiles-perl libipc-system-simple-perl libsub-override-perl
