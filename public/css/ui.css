@@ -7,6 +7,14 @@
  * License: GNU General Public License version 3 or later; see LICENSE
  * ================================================================================
  */
+/* Reserve the scrollbar's width up front so switching between the
+ * Standard and Advanced wizard forms (which differ a lot in height)
+ * never shifts the floated #wrapper/#notes layout sideways just because
+ * the page crossed the overflow threshold and a scrollbar popped in. */
+html {
+	scrollbar-gutter: stable;
+}
+
 body {
 	background-color: #eee;
 	font-family: "Arial", "Helvetica", "Verdana", "sans-serif";
@@ -94,31 +102,26 @@ h3 span {
 
 #drop_zone {
 	border: 2px dashed rgb(187, 187, 187);
-	border-radius: 5px 5px 5px 5px;
+	border-radius: 5px;
 	padding: 25px;
 	text-align: center;
 	color: rgb(187, 187, 187);
 }
 
-.help {
+.help, .help_buildcfg {
 	cursor: help;
-	color: #666;
 	text-decoration: none;
 }
 
-.help:hover{
-	cursor: help;
-	color: #000;
-	text-decoration: underline;
+.help {
+	color: #666;
 }
 
 .help_buildcfg {
-	cursor: help;
 	color: #000;
-	text-decoration: none;
 }
 
-.help_buildcfg:hover{
+.help:hover, .help_buildcfg:hover {
 	cursor: help;
 	color: #000;
 	text-decoration: underline;
@@ -191,9 +194,8 @@ h3 span {
 
 #options {
 	box-shadow: 0px 0px 3px #aaa;
-	border-radius: 10px;
 	border: 2px dashed rgb(187, 187, 187);
-	border-radius: 5px 5px 5px 5px;
+	border-radius: 5px;
 }
 
 #options label {
@@ -326,7 +328,7 @@ h3 span {
 	border-bottom: none;
 }
 
-.buildbutton {
+.buildbutton, .savebutton {
 	border: none;
 	outline: none;
 	border-radius: 10px;
@@ -341,34 +343,17 @@ h3 span {
 	font-family:"Century Gothic", Helvetica, sans-serif;
 	font-size: 22px;
 	box-shadow: 0px 0px 3px #aaa;
+}
+
+.buildbutton {
 	background: #4797ED;
 }
 
-.buildbutton:hover {
-	background: #d8d8d8;
-	color: #666;
-	text-shadow: 1px 1px 1px #fff;
-}
-
 .savebutton {
-	border: none;
-	outline: none;
-	border-radius: 10px;
-	color: #ffffff;
-	display: inline;
-	cursor:pointer;
-	margin: 0px auto;
-	clear: both;
-	padding: 7px 25px;
-	text-shadow: 0 1px 1px #777;
-	font-weight: bold;
-	font-family:"Century Gothic", Helvetica, sans-serif;
-	font-size: 22px;
-	box-shadow: 0px 0px 3px #aaa;
 	background: #16A70C;
 }
 
-.savebutton:hover {
+.buildbutton:hover, .savebutton:hover {
 	background: #d8d8d8;
 	color: #666;
 	text-shadow: 1px 1px 1px #fff;
