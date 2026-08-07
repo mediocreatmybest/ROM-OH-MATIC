@@ -17,18 +17,17 @@ env:
   IMAGE_NAME: mediocreatmybest/ipxe-buildweb
 
 jobs:
-  validate:
-    name: Validate scripts and Dockerfile
+  test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
-      - name: Shell syntax check
-        run: |
-          for f in install.sh start.sh update.sh; do
-            bash -n "$f"
-          done
+      - name: Validate scripts
+        run: bash scripts/ci/validate.sh
 
       - name: ShellCheck
         uses: ludeeus/action-shellcheck@2.0.0
@@ -46,16 +45,6 @@ jobs:
           # separate cleanup packet, not something this CI check should
           # block every build over.
           failure-threshold: error
-
-  build:
-    name: Build test image
-    runs-on: ubuntu-latest
-    needs: validate
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -100,154 +89,11 @@ jobs:
             --name rom-o-matic-smoke \
             ${{ env.IMAGE_NAME }}:test
 
-      # Bounded readiness loop: fail fast if the container exits, otherwise
-      # poll HTTP until it responds or the timeout is reached.
-      - name: Wait for HTTP readiness
-        run: |
-          for i in $(seq 1 30); do
-            if [ "$(docker inspect -f '{{.State.Running}}' rom-o-matic-smoke)" != "true" ]; then
-              echo "Container exited before becoming ready"
-              exit 1
-            fi
-            if curl -sf http://localhost:8080/ -o /dev/null; then
-              echo "HTTP ready after ${i}s"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "Timed out waiting for HTTP readiness"
-          exit 1
+      - name: Smoke-test HTTP endpoints
+        run: bash scripts/ci/smoke-endpoints.sh
 
-      - name: Verify expected page content
-        run: |
-          curl -sf http://localhost:8080/ | grep -q 'ROM-o-matic' || {
-            echo "Root page did not contain the expected ROM-o-matic identifier"
-            exit 1
-          }
-
-      # Prove the published image can actually do its one job, not just
-      # serve a web page. This is the same request the wizard's JS
-      # constructs (see public/js/ui.js's buildcfg()) -- build.fcgi clones
-      # and compiles from the iPXE submodule already baked into the image
-      # (build.ini's repository=/opt/rom-o-matic/ipxe/.git, cloned
-      # --local/--bare/--shared), so this never touches the network.
-      - name: Submit a representative iPXE build
-        run: |
-          curl -sf --max-time 120 \
-            -D /tmp/build-headers.txt \
-            -o /tmp/undionly.kpxe \
-            'http://localhost:8080/build.fcgi?BINARY=undionly.kpxe&BINDIR=bin&REVISION=master&DEBUG=&EMBED.00script.ipxe=' || {
-            echo "Build request failed"
-            exit 1
-          }
-          grep -qi '^Content-Disposition: attachment' /tmp/build-headers.txt || {
-            echo "Response did not look like a file download"
-            cat /tmp/build-headers.txt
-            exit 1
-          }
-          size=$(stat -c%s /tmp/undionly.kpxe)
-          echo "Build artefact size: ${size} bytes"
-          if [ "$size" -lt 10000 ]; then
-            echo "Build artefact is suspiciously small (${size} bytes) -- likely an error page, not a real binary"
-            exit 1
-          fi
-
-      # Cover the certificate-trust path: build.fcgi's trust_cert() wires a
-      # POSTed TRUST_CERT into both CERT= and TRUST= for the same file (see
-      # public/build.fcgi), and the frontend now submits builds via
-      # multipart POST (see public/js/ui.js's buildcfg()/buildcfgParams()),
-      # not the GET query string the plain smoke test above still uses for
-      # simplicity. Neither case was previously exercised anywhere in CI.
-      - name: Submit a certificate-trust EFI build
-        run: |
-          openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
-            -keyout /tmp/ci-root-key.pem -out /tmp/ci-root-cert.pem \
-            -subj '/CN=CI Test Root/O=CI'
-          status=$(curl -s --max-time 180 \
-            -D /tmp/trust-build-headers.txt \
-            -o /tmp/snponly.efi \
-            -w '%{http_code}' \
-            -F 'BINARY=snponly.efi' \
-            -F 'BINDIR=bin-x86_64-efi' \
-            -F 'REVISION=master' \
-            -F 'DEBUG=' \
-            -F 'EMBED.00script.ipxe=' \
-            -F 'TRUST_CERT=</tmp/ci-root-cert.pem' \
-            'http://localhost:8080/build.fcgi')
-          echo "Response status: ${status}"
-          if [ "$status" != "200" ]; then
-            echo "Certificate-trust build request failed"
-            echo "--- response headers ---"
-            cat /tmp/trust-build-headers.txt
-            echo "--- response body ---"
-            cat /tmp/snponly.efi
-            exit 1
-          fi
-          grep -qi '^Content-Disposition: attachment' /tmp/trust-build-headers.txt || {
-            echo "Response did not look like a file download"
-            cat /tmp/trust-build-headers.txt
-            exit 1
-          }
-          size=$(stat -c%s /tmp/snponly.efi)
-          echo "Certificate-trust build artefact size: ${size} bytes"
-          if [ "$size" -lt 10000 ]; then
-            echo "Build artefact is suspiciously small (${size} bytes) -- likely an error page, not a real binary"
-            exit 1
-          fi
-
-      # Negative case: trust_cert()'s `openssl x509 -noout` validation must
-      # actually reject bad input end-to-end (not just when unit-tested in
-      # isolation) -- a bogus PEM block must fail the build, not silently
-      # produce a binary that trusts nothing.
-      - name: Submit an invalid certificate and confirm rejection
-        run: |
-          status=$(curl -s --max-time 120 \
-            -o /tmp/invalid-cert-response.txt \
-            -w '%{http_code}' \
-            -F 'BINARY=snponly.efi' \
-            -F 'BINDIR=bin-x86_64-efi' \
-            -F 'REVISION=master' \
-            -F 'DEBUG=' \
-            -F 'EMBED.00script.ipxe=' \
-            -F $'TRUST_CERT=-----BEGIN CERTIFICATE-----\nnotbase64\n-----END CERTIFICATE-----' \
-            'http://localhost:8080/build.fcgi')
-          echo "Response status: ${status}"
-          if [ "$status" = "200" ]; then
-            echo "Invalid certificate was accepted -- trust_cert() should have rejected it"
-            cat /tmp/invalid-cert-response.txt
-            exit 1
-          fi
-
-      # The positive case above proves TRUST_CERT works via POST; this
-      # proves build.fcgi's own request-method check actually rejects it
-      # over GET too, rather than relying solely on the frontend never
-      # constructing such a URL (see trust_cert() in public/build.fcgi) --
-      # a GET query string still lands in browser history and front-end
-      # access logs regardless of what the frontend intends.
-      - name: Submit TRUST_CERT via GET and confirm rejection
-        run: |
-          status=$(curl -s --max-time 30 \
-            -o /tmp/get-trust-response.txt \
-            -w '%{http_code}' \
-            --get \
-            --data-urlencode 'BINARY=snponly.efi' \
-            --data-urlencode 'BINDIR=bin-x86_64-efi' \
-            --data-urlencode 'REVISION=master' \
-            --data-urlencode 'DEBUG=' \
-            --data-urlencode 'EMBED.00script.ipxe=' \
-            --data-urlencode 'TRUST_CERT@/tmp/ci-root-cert.pem' \
-            'http://localhost:8080/build.fcgi')
-          echo "Response status: ${status}"
-          if [ "$status" = "200" ]; then
-            echo "TRUST_CERT over GET was accepted -- build.fcgi should reject it"
-            cat /tmp/get-trust-response.txt
-            exit 1
-          fi
-          grep -qi 'POST' /tmp/get-trust-response.txt || {
-            echo "Rejected, but not with the expected POST-required error"
-            cat /tmp/get-trust-response.txt
-            exit 1
-          }
+      - name: Smoke-test iPXE builds
+        run: bash scripts/ci/smoke-builds.sh
 
       - name: Print container logs on failure
         if: failure()
@@ -260,9 +106,9 @@ jobs:
   publish:
     name: Publish image
     runs-on: ubuntu-latest
-    needs: build
+    needs: test
     # Only master pushes can reach login/push. Pull requests and manual
-    # dispatch runs stop at the build job above.
+    # dispatch runs stop at the test job above.
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     steps:
       - name: Checkout
@@ -280,10 +126,9 @@ jobs:
         run: echo "revision=$(git -C ipxe rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       # Standard OCI labels (revision, created, source, url) and the tag
-      # list are generated here rather than hard-coded, per ARCHITECTURE.md
-      # Phase 6. `latest` and the full-SHA tag are kept exactly as before
-      # (README documents both); sha-<short> is added as a friendlier
-      # addition, not a replacement.
+      # list are generated here rather than hard-coded. `latest` and the
+      # full-SHA tag are kept exactly as before (README documents both);
+      # sha-<short> is added as a friendlier addition, not a replacement.
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v6
