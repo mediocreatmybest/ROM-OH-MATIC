@@ -7,6 +7,16 @@
  * License: GNU General Public License version 3 or later; see LICENSE
  * ================================================================================
  */
+
+/* Shared design tokens for the few colors that get reused verbatim
+ * across otherwise-unrelated rules below, so a color change is a
+ * one-line edit instead of a grep across the file. */
+:root {
+	--border-grey: #ddd;
+	--dashed-grey: rgb(187, 187, 187);
+	--shadow-grey: #aaa;
+}
+
 /* Reserve the scrollbar's width up front so switching between the
  * Standard and Advanced wizard forms (which differ a lot in height)
  * never shifts the floated #wrapper/#notes layout sideways just because
@@ -88,7 +98,7 @@ h3 span {
 	float: left;
 	width: 50%;
 	background-color: #fff;
-	border: #ddd 1px solid;
+	border: var(--border-grey) 1px solid;
 	border-radius: 10px;
 	margin: 10px;
 	padding: 10px;
@@ -98,7 +108,7 @@ h3 span {
 	float: right;
 	width: 40%;
 	background-color: #ffe;
-	border: #ddd 1px solid;
+	border: var(--border-grey) 1px solid;
 	border-radius: 10px;
 	margin: 10px;
 	padding: 10px;
@@ -109,11 +119,11 @@ h3 span {
 }
 
 #drop_zone {
-	border: 2px dashed rgb(187, 187, 187);
+	border: 2px dashed var(--dashed-grey);
 	border-radius: 5px;
 	padding: 25px;
 	text-align: center;
-	color: rgb(187, 187, 187);
+	color: var(--dashed-grey);
 }
 
 .help, .help_buildcfg {
@@ -171,7 +181,7 @@ h3 span {
 
 .wizard-header {
 	background-color: #f4f4f4;
-	border-bottom: #ddd 1px solid;
+	border-bottom: var(--border-grey) 1px solid;
 	border-top-left-radius: 10px;
 	border-top-right-radius: 10px;
 	padding: 5px 10px;
@@ -180,7 +190,7 @@ h3 span {
 
 .wizard-option {
 	background-color: #f1f1f1;
-	border-bottom: #ddd 1px solid;
+	border-bottom: var(--border-grey) 1px solid;
 	border-top-left-radius: 10px;
 	border-top-right-radius: 10px;
 	padding: 5px 20px;
@@ -201,8 +211,8 @@ h3 span {
 }
 
 #options {
-	box-shadow: 0px 0px 3px #aaa;
-	border: 2px dashed rgb(187, 187, 187);
+	box-shadow: 0px 0px 3px var(--shadow-grey);
+	border: 2px dashed var(--dashed-grey);
 	border-radius: 5px;
 }
 
@@ -313,27 +323,27 @@ h3 span {
 	font-size: 13px;
 	line-height: 1.5;
 	max-width: 600px;
-}
 
-#trust_cert_preview .cert-field-name {
-	font-weight: bold;
-}
+	& .cert-field-name {
+		font-weight: bold;
+	}
 
-#trust_cert_preview .cert-fingerprint {
-	font-family: monospace;
-	word-break: break-all;
-}
+	& .cert-fingerprint {
+		font-family: monospace;
+		word-break: break-all;
+	}
 
-#trust_cert_preview .cert-block {
-	margin-bottom: 10px;
-	padding-bottom: 10px;
-	border-bottom: 1px solid #eee;
-}
+	& .cert-block {
+		margin-bottom: 10px;
+		padding-bottom: 10px;
+		border-bottom: 1px solid #eee;
 
-#trust_cert_preview .cert-block:last-child {
-	margin-bottom: 0;
-	padding-bottom: 0;
-	border-bottom: none;
+		&:last-child {
+			margin-bottom: 0;
+			padding-bottom: 0;
+			border-bottom: none;
+		}
+	}
 }
 
 .buildbutton, .savebutton {
@@ -350,7 +360,7 @@ h3 span {
 	font-weight: bold;
 	font-family:"Century Gothic", Helvetica, sans-serif;
 	font-size: 22px;
-	box-shadow: 0px 0px 3px #aaa;
+	box-shadow: 0px 0px 3px var(--shadow-grey);
 }
 
 .buildbutton {
