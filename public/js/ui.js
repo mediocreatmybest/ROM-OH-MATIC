@@ -1075,6 +1075,136 @@ onReady(function() {
                         popup.showModal();
                 });
 
+                /* Export the current form state as a preset file, so a site
+                 * can turn a configuration it just built into something
+                 * reusable (see presets/README.md) without hand-converting
+                 * the "Save buildcfg" URL. Boolean option keys carry a
+                 * trailing ":" in that URL, which the preset format does not
+                 * use -- doing this by hand means noticing that, or having
+                 * presets.php silently drop every boolean as malformed. */
+                document.getElementById('savepreset').addEventListener('click', function(e) {
+                        e.preventDefault();
+                        /* Same validation path as the other two buttons: an
+                         * invalid PCI ID or unvalidated certificate shows its
+                         * inline error and stops here. omitTrustCert, since a
+                         * certificate is per-site input a preset must not
+                         * carry. */
+                        var params = buildcfgParams(true);
+                        if (!params) { return; }
+
+                        content.replaceChildren();
+
+                        var heading = document.createElement('h2');
+                        heading.textContent = 'Save as preset';
+                        content.appendChild(heading);
+
+                        var intro = document.createElement('p');
+                        intro.textContent = 'Name this configuration, then download it. Drop the file into the presets directory to have it offered in the dropdown.';
+                        content.appendChild(intro);
+
+                        function field(labelText, id, placeholder) {
+                                var wrap = document.createElement('p');
+                                var label = document.createElement('label');
+                                label.setAttribute('for', id);
+                                label.textContent = labelText;
+                                var input = document.createElement('input');
+                                input.type = 'text';
+                                input.id = id;
+                                input.size = 40;
+                                input.placeholder = placeholder;
+                                wrap.appendChild(label);
+                                wrap.appendChild(document.createElement('br'));
+                                wrap.appendChild(input);
+                                content.appendChild(wrap);
+                                return input;
+                        }
+                        var nameInput = field('Preset name:', 'preset_save_name', 'My deployment');
+                        var descInput = field('Description (optional):', 'preset_save_description', 'What this is for');
+
+                        var error = document.createElement('div');
+                        error.className = 'fetch-status error';
+                        error.style.display = 'none';
+                        content.appendChild(error);
+
+                        var actions = document.createElement('p');
+                        var download = document.createElement('button');
+                        download.type = 'button';
+                        download.className = 'savebutton';
+                        download.style.fontSize = '16px';
+                        download.textContent = 'Download .json';
+                        actions.appendChild(download);
+                        content.appendChild(actions);
+
+                        var preview = document.createElement('pre');
+                        preview.style.maxHeight = '260px';
+                        preview.style.overflow = 'auto';
+                        preview.style.fontSize = '12px';
+                        content.appendChild(preview);
+
+                        /* Rebuilt on every keystroke so the preview always
+                         * matches what the download will contain. */
+                        function buildPreset() {
+                                var options = {};
+                                params.forEach(function(value, key) {
+                                        if (key.indexOf('.h/') === -1) { return; }
+                                        /* Booleans arrive as "header.h/NAME:";
+                                         * the preset format keys them without
+                                         * the trailing colon. */
+                                        var name = key.replace(/:$/, '');
+                                        options[name] = key.charAt(key.length - 1) === ':'
+                                                ? Number(value) : value;
+                                });
+                                var preset = { name: nameInput.value.trim() || 'Unnamed preset' };
+                                if (descInput.value.trim()) { preset.description = descInput.value.trim(); }
+                                var outputformat = document.getElementById('outputformatadv').value;
+                                if (outputformat && outputformat !== '-' && outputformat !== '--') {
+                                        preset.outputformat = outputformat;
+                                }
+                                var revision = params.get('REVISION');
+                                if (revision) { preset.revision = revision; }
+                                var embed = params.get('EMBED.00script.ipxe');
+                                if (embed) { preset.embed = embed; }
+                                preset.options = options;
+                                return preset;
+                        }
+
+                        function refreshPreview() {
+                                preview.textContent = JSON.stringify(buildPreset(), null, 2);
+                        }
+                        nameInput.addEventListener('input', refreshPreview);
+                        descInput.addEventListener('input', refreshPreview);
+                        refreshPreview();
+
+                        download.addEventListener('click', function() {
+                                var name = nameInput.value.trim();
+                                if (!name) {
+                                        error.textContent = 'Give the preset a name first.';
+                                        error.style.display = '';
+                                        nameInput.focus();
+                                        return;
+                                }
+                                error.style.display = 'none';
+                                /* Filename derived from the name, reduced to
+                                 * characters that are safe on every filesystem
+                                 * rather than trusting whatever was typed. */
+                                var filename = (name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+                                        .replace(/^-+|-+$/g, '') || 'preset') + '.json';
+                                var blob = new Blob([JSON.stringify(buildPreset(), null, 2) + '\n'],
+                                        { type: 'application/json' });
+                                var url = URL.createObjectURL(blob);
+                                var link = document.createElement('a');
+                                link.href = url;
+                                link.download = filename;
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                                URL.revokeObjectURL(url);
+                        });
+
+                        popup.showModal();
+                        nameInput.focus();
+                });
+
                 setTimeout(loadcfg, 50);
         })();
 

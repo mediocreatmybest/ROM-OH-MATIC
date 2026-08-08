@@ -7,7 +7,12 @@ A preset is a named set of deviations from iPXE's own defaults. Applying
 one fills the form in; nothing is locked afterwards, and editing any
 option switches the dropdown to "Custom".
 
-To add your own, drop a file in this directory -- for the container, bind
+The easiest way to write one is to not write it by hand: configure the
+advanced wizard the way you want it, then use **Save preset** next to the
+build button. That names the configuration and downloads it in this
+format, already including the output format and any embedded script.
+
+To add one, drop the file in this directory -- for the container, bind
 mount over it:
 
 ```bash
@@ -17,9 +22,18 @@ docker run --detach \
   mediocreatmybest/ipxe-buildweb:latest
 ```
 
+Note that a bind mount *replaces* this directory, so the bundled presets
+disappear unless you copy them into yours first.
+
 A file that is not valid JSON, or is missing `name`/`options`, is skipped
 with a message in the web server's error log rather than breaking the
 dropdown for every other preset.
+
+Presets are served to the browser, so treat anything in one as public.
+In particular an `embed` script is readable by anyone who can reach the
+app -- don't put credentials or internal-only URLs in a preset. A
+certificate is never carried in one; it is per-site input supplied
+through the wizard's own certificate-trust section.
 
 ## Format
 
