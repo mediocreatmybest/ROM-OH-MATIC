@@ -67,8 +67,13 @@ import operator
 import os
 import re
 
+# "#   define NAME" is as valid as "#define NAME", and appears elsewhere in
+# the iPXE tree even though config/*.h happens not to use it today. Matching
+# the conditional pattern below in tolerating that whitespace matters because
+# the failure is silent: an unmatched directive is treated as an unrelated
+# line, so the option simply disappears from the UI.
 DIRECTIVE_RE = re.compile(
-    r'^(?P<commented>//)?#(?P<directive>define|undef)\s+(?P<name>\w+)(?P<rest>.*)$'
+    r'^(?P<commented>//)?#\s*(?P<directive>define|undef)\s+(?P<name>\w+)(?P<rest>.*)$'
 )
 
 # Preprocessor conditionals. "ifndef"/"ifdef"/"elif" must precede "if" in
@@ -77,7 +82,12 @@ CONDITIONAL_RE = re.compile(
     r'^#\s*(?P<kind>ifndef|ifdef|elif|else|endif|if)\b'
 )
 
-_INCLUDE_GUARD_RE = re.compile(r'^#\s*ifndef\s+(?P<name>\w+)\s*$')
+# Trailing comments are allowed on both halves of the guard: without that,
+# "#ifndef CONFIG_FOO_H /* guard */" is not recognised and the guard's own
+# symbol is reported as though it were a build option.
+_INCLUDE_GUARD_RE = re.compile(
+    r'^#\s*ifndef\s+(?P<name>\w+)\s*(?:/\*.*)?$'
+)
 
 # A handful of value-bearing options (e.g. general.h's
 # `ROM_BANNER_TIMEOUT ( 2 * BANNER_TIMEOUT )`, crypto.h's
@@ -200,7 +210,7 @@ def is_include_guard(lines, index):
         j += 1
     if j >= len(lines):
         return False
-    return re.match(r'^#\s*define\s+' + re.escape(guard) + r'\s*$',
+    return re.match(r'^#\s*define\s+' + re.escape(guard) + r'\s*(?:/\*.*)?$',
                     lines[j].strip()) is not None
 
 
@@ -235,7 +245,16 @@ def scan_directives(lines):
         if conditional:
             kind = conditional.group('kind')
             if kind in ('if', 'ifdef', 'ifndef'):
-                guard = is_include_guard(lines, i) if kind == 'ifndef' else False
+                # Only the file's own guard is exempt, and that one wraps
+                # everything, so it can only appear at the top level.
+                # Without the depth test any nested "#ifndef NAME /
+                # #define NAME" -- the ordinary way a header gives an
+                # option a default without overriding one already set --
+                # looked like a guard, which both left the block out of
+                # the depth count and dropped NAME from the output
+                # entirely.
+                guard = (kind == 'ifndef' and not guard_stack
+                         and is_include_guard(lines, i))
                 guard_stack.append(guard)
                 if guard:
                     # Remember the name so the guard's own "#define NAME"

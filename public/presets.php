@@ -32,16 +32,22 @@ $presets_dir = dirname(__FILE__) . '/presets';
  * than trusted on arrival. Options in particular become build.fcgi
  * parameters, whose key format is fixed ("header.h/DEFINE"); anything
  * that does not match is dropped rather than forwarded. */
-function validate_preset($data, $filename)
+/* $typed is the same document decoded with objects left as objects.
+ * json_decode(..., true) turns both {} and [] into PHP arrays, so the
+ * associative decode alone cannot tell a proper option map from a JSON
+ * list: "options": [] then passed is_array(), contributed no entries,
+ * and produced an empty preset in the dropdown rather than the rejection
+ * the format documents. */
+function validate_preset($data, $typed, $filename)
 {
-	if (!is_array($data)) {
+	if (!is_array($data) || !is_object($typed)) {
 		return 'not a JSON object';
 	}
 	if (!isset($data['name']) || !is_string($data['name']) || trim($data['name']) === '') {
 		return 'missing or empty "name"';
 	}
-	if (!isset($data['options']) || !is_array($data['options'])) {
-		return 'missing "options" object';
+	if (!isset($typed->options) || !is_object($typed->options)) {
+		return '"options" must be a JSON object';
 	}
 
 	$preset = array(
@@ -112,7 +118,10 @@ if (is_dir($presets_dir)) {
 			error_log('presets.php: ' . basename($file) . ': invalid JSON (' . json_last_error_msg() . ')');
 			continue;
 		}
-		$result = validate_preset($data, basename($file));
+		/* Second pass with objects preserved, so validate_preset() can
+		 * tell a JSON object from a JSON list. */
+		$typed = json_decode($raw);
+		$result = validate_preset($data, $typed, basename($file));
 		if (is_string($result)) {
 			error_log('presets.php: ' . basename($file) . ': ' . $result);
 			continue;

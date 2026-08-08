@@ -455,10 +455,12 @@ onReady(function() {
          * them before any preset touched them. */
         function capturePresetBaseline() {
                 if (presetBaseline) { return; }
+                var trustMode = document.querySelector('input[name=trustmode]:checked');
                 presetBaseline = {
                         outputformat: document.getElementById('outputformatadv').value,
                         revision: document.getElementById('gitrevision').value,
-                        embed: document.getElementById('embed').value
+                        embed: document.getElementById('embed').value,
+                        trustmode: trustMode ? trustMode.value : 'standard'
                 };
         }
 
@@ -477,6 +479,16 @@ onReady(function() {
                         revisionSelect.dispatchEvent(new Event('change'));
                 }
                 document.getElementById('embed').value = presetBaseline.embed;
+                /* Trust mode is preset-controlled too: a preset asking for
+                 * custom trust switched the radio, and nothing put it back,
+                 * so moving to a preset that does not need a certificate --
+                 * or back to None -- left custom trust selected and blocked
+                 * every build until one was supplied. Restoring the captured
+                 * value keeps a genuinely user-chosen setting, since the
+                 * baseline is taken before any preset is applied. */
+                var baselineTrust = document.getElementById(
+                        presetBaseline.trustmode === 'custom' ? 'trust_custom' : 'trust_standard');
+                if (baselineTrust && !baselineTrust.checked) { baselineTrust.click(); }
         }
 
         /* Look inputs up by name through a map built from the DOM, rather

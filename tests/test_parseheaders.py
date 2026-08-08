@@ -163,6 +163,25 @@ class ParseFileTests(unittest.TestCase):
         self.assertNotIn('CONFIG_GENERAL_H', names)
         self.assertEqual(names, ['FOO'])
 
+    def test_whitespace_between_hash_and_directive(self):
+        # "#   define NAME" is valid C and appears elsewhere in the iPXE
+        # tree. An unmatched directive is silently treated as an unrelated
+        # line, so failing to match here loses the option altogether.
+        content = '#  ifdef SOMETHING\n#   define SPACED\n#  endif\n#\tundef TABBED\n'
+        path = self._write('general.h', content)
+        entries = parse_file(path, 'general.h')
+        self.assertEqual([(e['name'], e['type']) for e in entries],
+                         [('SPACED', 'define'), ('TABBED', 'undef')])
+
+    def test_include_guard_with_trailing_comment_is_skipped(self):
+        content = ('#ifndef CONFIG_GENERAL_H /* guard */\n'
+                   '#define CONFIG_GENERAL_H /* guard */\n'
+                   '#define FOO\n#endif\n')
+        path = self._write('general.h', content)
+        names = [e['name'] for e in parse_file(path, 'general.h')]
+        self.assertNotIn('CONFIG_GENERAL_H', names)
+        self.assertEqual(names, ['FOO'])
+
     def test_include_guard_with_blank_line_is_skipped(self):
         content = '#ifndef CONFIG_GENERAL_H\n\n#define CONFIG_GENERAL_H\n#define FOO\n#endif\n'
         path = self._write('general.h', content)
@@ -240,6 +259,21 @@ class ConditionalDepthTests(unittest.TestCase):
         lines = ['#ifndef CONFIG_FOO_H', '', '#define CONFIG_FOO_H',
                  '#define BAR', '#endif']
         self.assertEqual([r['name'] for r in scan_directives(lines)], ['BAR'])
+
+    def test_nested_ifndef_define_is_not_treated_as_a_file_guard(self):
+        # "#ifndef NAME / #define NAME" nested inside a conditional is the
+        # ordinary way a header supplies a default without overriding a
+        # value already set. Mistaking it for the file's include guard
+        # dropped the option entirely and undercounted the depth.
+        lines = ['#ifndef CONFIG_FOO_H', '#define CONFIG_FOO_H',
+                 '#if defined ( PLATFORM_pcbios )',
+                 '#ifndef NEEDS_DEFAULT', '#define NEEDS_DEFAULT', '#endif',
+                 '#endif',
+                 '#define REAL', '#endif']
+        records = scan_directives(lines)
+        self.assertEqual([r['name'] for r in records], ['NEEDS_DEFAULT', 'REAL'])
+        self.assertEqual(records[0]['depth'], 2)
+        self.assertEqual(records[1]['depth'], 0)
 
     def test_define_matching_a_non_guard_ifndef_is_kept(self):
         # "#ifndef SOMETHING" followed by a define of a DIFFERENT name is

@@ -159,10 +159,12 @@
 					</p>
 					<div id="trust_bios_warning" class="notice" style="display: none">
 						<strong>Please note:</strong>
-						The selected output format does not support HTTPS -- this is an
-						<a href="https://github.com/ipxe/ipxe/blob/12798ec29aa8a64d8675c4378b99f5fe28447afb/src/config/general.h#L62-L65" target="_blank">iPXE decision for BIOS-format builds</a>.
-						Adding a certificate trust with this output will not function as intended.
-						Please choose a UEFI output format to use this option.
+						HTTPS is switched off by default for BIOS-format builds -- an
+						<a href="https://github.com/ipxe/ipxe/blob/12798ec29aa8a64d8675c4378b99f5fe28447afb/src/config/general.h#L62-L65" target="_blank">iPXE decision</a>,
+						not a limitation of the format. A certificate on its own will
+						therefore have no effect here. Either choose a UEFI output
+						format, or also enable <code>DOWNLOAD_PROTO_HTTPS</code> in the
+						build configuration options above.
 					</div>
 
 					<input type="radio" name="trustmode" value="standard" id="trust_standard" checked />
