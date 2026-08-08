@@ -61,7 +61,7 @@ onReady(function() {
          * into them directly would make it proceed before the real data
          * arrives. */
         var statusEl = document.getElementById('fetch-status');
-        var pendingFetches = 3;
+        var pendingFetches = 4;
         var fetchErrors = [];
         if (statusEl) {
                 statusEl.textContent = 'Loading build options...';
@@ -328,7 +328,271 @@ onReady(function() {
                         } else { alert("we have an issue"); }
                 }
                 document.getElementById('options').replaceChildren(listoptions);
+                optionsReady = true;
+                refreshPresetAvailability();
         })
+
+        /* ------------------------------------------------------------------
+         * Build presets
+         *
+         * A preset is a named set of deviations from iPXE's own defaults --
+         * the same shape buildcfgParams() already submits, since it only
+         * sends options whose current value differs from the parsed default.
+         * Applying one is therefore just "set the form to these values";
+         * nothing is locked afterwards.
+         *
+         * Presets are data (presets/*.json, served by presets.php) rather
+         * than being built in here, so a site can add its own by dropping a
+         * file into that directory. Everything read from a preset is treated
+         * as untrusted: text goes in via textContent, and option keys are
+         * matched against inputs that actually exist rather than being
+         * trusted to name something real.
+         * ------------------------------------------------------------------ */
+
+        var presets = [];
+        var optionsReady = false;
+        var presetsReady = false;
+        /* Set while applyPreset() is writing to the form, so the drift
+         * listener below can tell our own writes from a user edit. */
+        var applyingPreset = false;
+
+        var presetSection = document.getElementById('preset');
+        var presetSelect = document.getElementById('presetselect');
+        var presetDescription = document.getElementById('preset_description');
+        var presetStatus = document.getElementById('preset_status');
+
+        var PRESET_NONE = '';
+        var PRESET_CUSTOM = '__custom__';
+
+        /* The preset list is useless until the options it refers to are on
+         * the page, and options.php can be slow on a cold cache (it shells
+         * out to parseheaders.py). Selecting a preset before then would
+         * report every one of its keys as unknown, so stay disabled until
+         * both have arrived. */
+        function refreshPresetAvailability() {
+                if (!presetSection || !presetSelect) { return; }
+                if (!presetsReady || presets.length === 0) {
+                        presetSection.style.display = 'none';
+                        return;
+                }
+                presetSection.style.display = '';
+                presetSelect.disabled = !optionsReady;
+        }
+
+        function setPresetStatus(text, isError) {
+                if (!presetStatus) { return; }
+                if (!text) {
+                        presetStatus.style.display = 'none';
+                        presetStatus.textContent = '';
+                        presetStatus.classList.remove('error');
+                        return;
+                }
+                presetStatus.textContent = text;
+                presetStatus.style.display = '';
+                presetStatus.classList.toggle('error', !!isError);
+        }
+
+        function setPresetDescription(preset) {
+                if (!presetDescription) { return; }
+                presetDescription.replaceChildren();
+                if (!preset) {
+                        presetDescription.style.display = 'none';
+                        return;
+                }
+                var parts = [];
+                if (preset.description) { parts.push(preset.description); }
+                if (preset.trust_note) { parts.push(preset.trust_note); }
+                if (preset.source) { parts.push('Source: ' + preset.source); }
+                if (parts.length === 0) {
+                        presetDescription.style.display = 'none';
+                        return;
+                }
+                parts.forEach(function(text) {
+                        var p = document.createElement('p');
+                        p.textContent = text;
+                        presetDescription.appendChild(p);
+                });
+                presetDescription.style.display = '';
+        }
+
+        /* Every rendered option carries its own parsed default: a checkbox's
+         * value attribute holds it ("1"/"0", never changed by clicking), and
+         * a text input's placeholder holds it. buildcfgParams() compares
+         * against exactly these to decide what to submit, so restoring from
+         * them puts the form back to "no deviations at all". */
+        function resetOptionsToDefaults() {
+                document.querySelectorAll('#options input[type=checkbox]').forEach(function(input) {
+                        input.checked = (input.value === '1');
+                        delete input.dataset.presetApplied;
+                });
+                document.querySelectorAll('#options input[type=text]').forEach(function(input) {
+                        input.value = input.placeholder;
+                        delete input.dataset.presetApplied;
+                });
+        }
+
+        /* Look inputs up by name through a map built from the DOM, rather
+         * than composing a selector out of preset-supplied text. */
+        function optionInputsByName() {
+                var byName = {};
+                document.querySelectorAll('#options input').forEach(function(input) {
+                        if (input.name) { byName[input.name] = input; }
+                });
+                return byName;
+        }
+
+        function selectHasValue(select, value) {
+                return Array.from(select.options).some(function(opt) {
+                        return opt.value === value;
+                });
+        }
+
+        function applyPreset(preset) {
+                applyingPreset = true;
+                try {
+                        resetOptionsToDefaults();
+
+                        var byName = optionInputsByName();
+                        var unknown = [];
+                        var applied = 0;
+                        Object.keys(preset.options).forEach(function(key) {
+                                var input = byName[key];
+                                if (!input) {
+                                        /* The option named here does not exist in the
+                                         * iPXE revision currently being parsed. Say so
+                                         * rather than silently applying a subset --
+                                         * options do get renamed and removed upstream,
+                                         * and a quietly partial preset is worse than a
+                                         * noisy one. */
+                                        unknown.push(key);
+                                        return;
+                                }
+                                var value = preset.options[key];
+                                if (input.type === 'checkbox') {
+                                        input.checked = (value === 1 || value === '1' || value === true);
+                                } else {
+                                        input.value = String(value);
+                                }
+                                /* Read by buildcfgParams() -- see the note there
+                                 * on why a preset's values are sent explicitly. */
+                                input.dataset.presetApplied = '1';
+                                applied += 1;
+                        });
+
+                        var notes = [];
+
+                        if (preset.outputformat) {
+                                var outputSelect = document.getElementById('outputformatadv');
+                                if (selectHasValue(outputSelect, preset.outputformat)) {
+                                        outputSelect.value = preset.outputformat;
+                                        outputSelect.dispatchEvent(new Event('change'));
+                                } else {
+                                        notes.push('output format "' + preset.outputformat + '" is not offered by this build');
+                                }
+                        }
+
+                        if (preset.revision) {
+                                var revisionSelect = document.getElementById('gitrevision');
+                                if (selectHasValue(revisionSelect, preset.revision)) {
+                                        revisionSelect.value = preset.revision;
+                                        revisionSelect.dispatchEvent(new Event('change'));
+                                } else {
+                                        /* Worth saying out loud: the option set a preset
+                                         * was written against belongs to a specific iPXE
+                                         * revision. */
+                                        notes.push('revision "' + preset.revision + '" is not in the revision list, so these options are being applied to a different iPXE revision than the preset was written for');
+                                }
+                        }
+
+                        if (typeof preset.embed === 'string') {
+                                document.getElementById('embed').value = preset.embed;
+                        }
+
+                        if (preset.requires_trust_cert) {
+                                document.getElementById('trust_custom').click();
+                        }
+
+                        var summary = 'Applied ' + applied + ' option' + (applied === 1 ? '' : 's') + ' from "' + preset.name + '".';
+                        if (unknown.length > 0) {
+                                notes.push(unknown.length === 1
+                                        ? '1 option in this preset does not exist in the iPXE revision loaded here and was skipped: ' + unknown[0]
+                                        : unknown.length + ' options in this preset do not exist in the iPXE revision loaded here and were skipped: ' + unknown.join(', '));
+                        }
+                        setPresetStatus(notes.length > 0 ? summary + ' ' + notes.join('. ') + '.' : summary,
+                                        unknown.length > 0 || notes.length > 0);
+                } finally {
+                        applyingPreset = false;
+                }
+        }
+
+        function markPresetCustom() {
+                if (!presetSelect || presetSelect.value === PRESET_CUSTOM) { return; }
+                if (presetSelect.value === PRESET_NONE) { return; }
+                presetSelect.value = PRESET_CUSTOM;
+                setPresetDescription(null);
+                setPresetStatus('Options edited by hand -- no longer matching a preset.');
+        }
+
+        fetchJSON("presets.php", function(data) {
+                return Array.isArray(data) && data.every(function(preset) {
+                        return preset && typeof preset.name === 'string' &&
+                                preset.options && typeof preset.options === 'object';
+                });
+        }, function(data) {
+                presets = data;
+                presetsReady = true;
+                if (!presetSelect) { return; }
+
+                var presetOptions = document.createDocumentFragment();
+                presetOptions.appendChild(makeOption(PRESET_NONE, 'None (iPXE defaults)', true));
+                for (var i = 0; i < presets.length; i++) {
+                        presetOptions.appendChild(makeOption(String(i), presets[i].name));
+                }
+                /* Reachable only by editing an option after applying a preset,
+                 * never chosen directly -- hence disabled. */
+                var custom = makeOption(PRESET_CUSTOM, 'Custom (modified)');
+                custom.disabled = true;
+                presetOptions.appendChild(custom);
+                presetSelect.replaceChildren(presetOptions);
+
+                refreshPresetAvailability();
+        })
+
+        if (presetSelect) {
+                presetSelect.addEventListener('change', function() {
+                        var value = presetSelect.value;
+                        if (value === PRESET_CUSTOM) { return; }
+                        if (value === PRESET_NONE) {
+                                applyingPreset = true;
+                                try {
+                                        resetOptionsToDefaults();
+                                } finally {
+                                        applyingPreset = false;
+                                }
+                                setPresetDescription(null);
+                                setPresetStatus('Reset to iPXE defaults.');
+                                return;
+                        }
+                        var preset = presets[parseInt(value, 10)];
+                        if (!preset) { return; }
+                        setPresetDescription(preset);
+                        applyPreset(preset);
+                });
+        }
+
+        /* Any hand edit to an option means the form no longer represents the
+         * chosen preset. Deliberately scoped to #options only: supplying a
+         * certificate, or anything else in the per-site sections, is input a
+         * preset cannot carry rather than a deviation from it. */
+        var optionsContainer = document.getElementById('options');
+        if (optionsContainer) {
+                ['change', 'input'].forEach(function(eventName) {
+                        optionsContainer.addEventListener(eventName, function() {
+                                if (applyingPreset) { return; }
+                                markPresetCustom();
+                        });
+                });
+        }
 
         /* Reset from on reload */
         document.querySelector('input[name=wizardtype]').checked = true;
@@ -482,11 +746,28 @@ onReady(function() {
                          * on the key is part of the wire format build.fcgi
                          * expects for boolean overrides, not a typo -- see
                          * the matching strip in loadcfg(). */
+                        /* Options touched by a preset are submitted even when
+                         * they match the displayed default, because for some
+                         * options that default is not what the build will
+                         * actually use. parseheaders.py reports one default per
+                         * option, taken from the header's top level, but a
+                         * platform block can override it for the target being
+                         * built: upstream general.h defines PARAM_CMD, CERT_CMD
+                         * and six others at the top level and then #undefs them
+                         * under "#if defined ( PLATFORM_pcbios )". They display
+                         * as enabled, so a preset asking for them enabled would
+                         * look like "no change", send nothing, and leave the
+                         * BIOS build with them off -- which for PARAM_CMD means
+                         * every legacy-BIOS client fails to boot. Sending a
+                         * preset's values explicitly makes the request say what
+                         * it means; build.fcgi writes them into
+                         * config/local/*.h, which the headers include last. */
                         document.querySelectorAll('#options input[type=checkbox]').forEach(function(input, index) {
                                 var name = input.name;
                                 var value = input.checked ? 1 : 0;
-                                if (input.value != value) {
-                                        console.log( "Checkbox:" + index + ": " + name + " default: " + input.value + " new: " + input.checked );
+                                var fromPreset = input.dataset.presetApplied === '1';
+                                if (input.value != value || fromPreset) {
+                                        console.log( "Checkbox:" + index + ": " + name + " default: " + input.value + " new: " + input.checked + (fromPreset ? " (preset)" : "") );
                                         optionEntries.push([name + ":", value]);
                                 }
                         });
@@ -494,8 +775,9 @@ onReady(function() {
                         document.querySelectorAll('#options input[type=text]').forEach(function(input, index) {
                                 var name = input.name;
                                 var placeholder = input.placeholder;
-                                if (input.value != placeholder) {
-                                        console.log( "Text:" + index + ": " + name + " default: " + input.placeholder + " new: " + input.value);
+                                var fromPreset = input.dataset.presetApplied === '1';
+                                if (input.value != placeholder || fromPreset) {
+                                        console.log( "Text:" + index + ": " + name + " default: " + input.placeholder + " new: " + input.value + (fromPreset ? " (preset)" : "") );
                                         optionEntries.push([name, input.value]);
                                 }
                         });
