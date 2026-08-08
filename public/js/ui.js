@@ -42,6 +42,47 @@ onReady(function() {
                 return opt;
         }
 
+        /* A small "?" icon that reveals explanatory text in a popover on
+         * hover, click, or keyboard focus -- CSS-only (:hover /
+         * :focus-within in ui.css), no JS event handling needed, so
+         * hover/click/keyboard-Tab all work identically without three
+         * separate code paths. Shared by the per-option rows and the
+         * preset dropdown. `idBase` must already be a safe id fragment
+         * (for options that is file+"/"+NAME, both always valid
+         * C-identifier-like strings from iPXE's own headers, with "/"
+         * swapped out since it's an unusual id character to carry
+         * through, even though technically legal in an HTML id).
+         * `paragraphs` may be a string or an array of strings, each
+         * rendered as its own line. Returns null if there's nothing to
+         * show. */
+        function makeHelpIcon(idBase, paragraphs, label) {
+                var parts = (Array.isArray(paragraphs) ? paragraphs : [paragraphs])
+                        .filter(function(text) { return text; });
+                if (parts.length === 0) { return null; }
+                var id = 'opthelp-' + idBase.replace(/[^A-Za-z0-9_-]/g, '-');
+                var wrap = document.createElement('span');
+                wrap.className = 'option-help-wrap';
+                var button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'option-help';
+                button.textContent = '?';
+                button.setAttribute('aria-describedby', id);
+                button.setAttribute('aria-label', label || ('About ' + idBase));
+                var popover = document.createElement('span');
+                popover.className = 'option-description-popover';
+                popover.id = id;
+                popover.setAttribute('role', 'tooltip');
+                parts.forEach(function(text) {
+                        var line = document.createElement('span');
+                        line.className = 'popover-para';
+                        line.textContent = text;
+                        popover.appendChild(line);
+                });
+                wrap.appendChild(button);
+                wrap.appendChild(popover);
+                return wrap;
+        }
+
         /* Shared by the initial gitversion.php load and the #gitrevision
          * change handler below, so both build the header the same, safe
          * way. */
@@ -61,7 +102,7 @@ onReady(function() {
          * into them directly would make it proceed before the real data
          * arrives. */
         var statusEl = document.getElementById('fetch-status');
-        var pendingFetches = 3;
+        var pendingFetches = 4;
         var fetchErrors = [];
         if (statusEl) {
                 statusEl.textContent = 'Loading build options...';
@@ -122,6 +163,8 @@ onReady(function() {
                         revisionOptions.appendChild(makeOption(data[i], data[i]));
                 }
                 document.getElementById('gitrevision').replaceChildren(revisionOptions);
+                revisionsReady = true;
+                refreshPresetAvailability();
         })
 
         fetchJSON("nics.php", function(data) {
@@ -175,37 +218,6 @@ onReady(function() {
                 subtitle.CRYPTO = 'Crypto configuration:';
                 subtitle.TLS = 'TLS configuration:';
                 subtitle.OCSP = 'OCSP Configuration:'
-
-                /* A small "?" icon that reveals the option's description in
-                 * a popover on hover, click, or keyboard focus -- CSS-only
-                 * (:hover / :focus-within in ui.css), no JS event handling
-                 * needed, so hover/click/keyboard-Tab all work identically
-                 * without three separate code paths. `idBase` must already
-                 * be a safe id fragment (fieldName is file+"/"+NAME, both
-                 * always valid C-identifier-like strings from iPXE's own
-                 * headers, with "/" swapped out since it's an unusual id
-                 * character to carry through, even though technically legal
-                 * in an HTML id). Returns null if there's nothing to show. */
-                function makeHelpIcon(idBase, text) {
-                        if (!text) { return null; }
-                        var id = 'opthelp-' + idBase.replace(/[^A-Za-z0-9_-]/g, '-');
-                        var wrap = document.createElement('span');
-                        wrap.className = 'option-help-wrap';
-                        var button = document.createElement('button');
-                        button.type = 'button';
-                        button.className = 'option-help';
-                        button.textContent = '?';
-                        button.setAttribute('aria-describedby', id);
-                        button.setAttribute('aria-label', 'About ' + idBase);
-                        var popover = document.createElement('span');
-                        popover.className = 'option-description-popover';
-                        popover.id = id;
-                        popover.setAttribute('role', 'tooltip');
-                        popover.textContent = text;
-                        wrap.appendChild(button);
-                        wrap.appendChild(popover);
-                        return wrap;
-                }
 
                 /* <label class="option-row"> with the option name on its own
                  * line and the input + "?" icon directly below it, always in
@@ -328,7 +340,398 @@ onReady(function() {
                         } else { alert("we have an issue"); }
                 }
                 document.getElementById('options').replaceChildren(listoptions);
+                optionsReady = true;
+                refreshPresetAvailability();
         })
+
+        /* ------------------------------------------------------------------
+         * Build presets
+         *
+         * A preset is a named set of deviations from iPXE's own defaults --
+         * the same shape buildcfgParams() already submits, since it only
+         * sends options whose current value differs from the parsed default.
+         * Applying one is therefore just "set the form to these values";
+         * nothing is locked afterwards.
+         *
+         * Presets are data (presets/*.json, served by presets.php) rather
+         * than being built in here, so a site can add its own by dropping a
+         * file into that directory. Everything read from a preset is treated
+         * as untrusted: text goes in via textContent, and option keys are
+         * matched against inputs that actually exist rather than being
+         * trusted to name something real.
+         * ------------------------------------------------------------------ */
+
+        var presets = [];
+        var optionsReady = false;
+        var presetsReady = false;
+        var revisionsReady = false;
+        /* The output format, revision and embedded script as they stood
+         * before any preset was applied. Presets set these only when they
+         * carry the corresponding field, so without a baseline to return
+         * to, switching from a preset that sets one to a preset that
+         * doesn't would leave the first preset's value in place and the
+         * form would no longer describe either. Captured once, lazily, so
+         * anything the user had already entered is what gets restored. */
+        var presetBaseline = null;
+        /* Set while applyPreset() is writing to the form, so the drift
+         * listener below can tell our own writes from a user edit. */
+        var applyingPreset = false;
+
+        var presetSection = document.getElementById('preset');
+        var presetSelect = document.getElementById('presetselect');
+        var presetHelp = document.getElementById('preset_help');
+        var presetStatus = document.getElementById('preset_status');
+
+        var PRESET_NONE = '';
+        var PRESET_CUSTOM = '__custom__';
+
+        /* The preset list is useless until the options it refers to are on
+         * the page, and options.php can be slow on a cold cache (it shells
+         * out to parseheaders.py). Selecting a preset before then would
+         * report every one of its keys as unknown, so stay disabled until
+         * both have arrived. */
+        function refreshPresetAvailability() {
+                if (!presetSection || !presetSelect) { return; }
+                if (!presetsReady || presets.length === 0) {
+                        presetSection.style.display = 'none';
+                        return;
+                }
+                presetSection.style.display = '';
+                /* Revisions count as well as options: a preset naming a
+                 * revision would be reported as asking for one this build
+                 * doesn't offer if it were applied before gitversion.php
+                 * had filled the list in, and nothing retries afterwards. */
+                presetSelect.disabled = !(optionsReady && revisionsReady);
+        }
+
+        function setPresetStatus(text, isError) {
+                if (!presetStatus) { return; }
+                if (!text) {
+                        presetStatus.style.display = 'none';
+                        presetStatus.textContent = '';
+                        presetStatus.classList.remove('error');
+                        return;
+                }
+                presetStatus.textContent = text;
+                presetStatus.style.display = '';
+                presetStatus.classList.toggle('error', !!isError);
+        }
+
+        /* The chosen preset's description, certificate guidance and
+         * provenance live behind the same "?" icon used by the individual
+         * options, rather than as a block under the dropdown -- it is
+         * reference material for the one preset you picked, not something
+         * that needs to occupy the form permanently. Cleared for
+         * "None"/"Custom", which have nothing to describe. */
+        function setPresetDescription(preset) {
+                if (!presetHelp) { return; }
+                presetHelp.replaceChildren();
+                if (!preset) { return; }
+                var icon = makeHelpIcon('preset-' + preset.name, [
+                        preset.description,
+                        preset.trust_note,
+                        preset.source ? 'Source: ' + preset.source : null
+                ], 'About the ' + preset.name + ' preset');
+                if (icon) { presetHelp.appendChild(icon); }
+        }
+
+        /* Every rendered option carries its own parsed default: a checkbox's
+         * value attribute holds it ("1"/"0", never changed by clicking), and
+         * a text input's placeholder holds it. buildcfgParams() compares
+         * against exactly these to decide what to submit, so restoring from
+         * them puts the form back to "no deviations at all". */
+        function resetOptionsToDefaults() {
+                document.querySelectorAll('#options input[type=checkbox]').forEach(function(input) {
+                        input.checked = (input.value === '1');
+                        delete input.dataset.presetApplied;
+                });
+                document.querySelectorAll('#options input[type=text]').forEach(function(input) {
+                        input.value = input.placeholder;
+                        delete input.dataset.presetApplied;
+                });
+        }
+
+        /* Remember, once, the preset-controlled fields as the user left
+         * them before any preset touched them. */
+        function capturePresetBaseline() {
+                if (presetBaseline) { return; }
+                var trustMode = document.querySelector('input[name=trustmode]:checked');
+                presetBaseline = {
+                        outputformat: document.getElementById('outputformatadv').value,
+                        revision: document.getElementById('gitrevision').value,
+                        embed: document.getElementById('embed').value,
+                        trustmode: trustMode ? trustMode.value : 'standard'
+                };
+        }
+
+        /* Put those fields back, so each preset is applied to the same
+         * starting point rather than on top of the previous one. */
+        function restorePresetBaseline() {
+                if (!presetBaseline) { return; }
+                var outputSelect = document.getElementById('outputformatadv');
+                if (outputSelect.value !== presetBaseline.outputformat) {
+                        outputSelect.value = presetBaseline.outputformat;
+                        outputSelect.dispatchEvent(new Event('change'));
+                }
+                var revisionSelect = document.getElementById('gitrevision');
+                if (revisionSelect.value !== presetBaseline.revision) {
+                        revisionSelect.value = presetBaseline.revision;
+                        revisionSelect.dispatchEvent(new Event('change'));
+                }
+                document.getElementById('embed').value = presetBaseline.embed;
+                /* Trust mode is preset-controlled too: a preset asking for
+                 * custom trust switched the radio, and nothing put it back,
+                 * so moving to a preset that does not need a certificate --
+                 * or back to None -- left custom trust selected and blocked
+                 * every build until one was supplied. Restoring the captured
+                 * value keeps a genuinely user-chosen setting, since the
+                 * baseline is taken before any preset is applied. */
+                var baselineTrust = document.getElementById(
+                        presetBaseline.trustmode === 'custom' ? 'trust_custom' : 'trust_standard');
+                if (baselineTrust && !baselineTrust.checked) { baselineTrust.click(); }
+        }
+
+        /* Look inputs up by name through a map built from the DOM, rather
+         * than composing a selector out of preset-supplied text. */
+        function optionInputsByName() {
+                var byName = {};
+                document.querySelectorAll('#options input').forEach(function(input) {
+                        if (input.name) { byName[input.name] = input; }
+                });
+                return byName;
+        }
+
+        function selectHasValue(select, value) {
+                return Array.from(select.options).some(function(opt) {
+                        return opt.value === value;
+                });
+        }
+
+        function applyPreset(preset) {
+                applyingPreset = true;
+                try {
+                        capturePresetBaseline();
+                        restorePresetBaseline();
+                        resetOptionsToDefaults();
+
+                        var byName = optionInputsByName();
+                        var unknown = [];
+                        var badValues = [];
+                        var applied = 0;
+                        Object.keys(preset.options).forEach(function(key) {
+                                var input = byName[key];
+                                if (!input) {
+                                        /* The option named here does not exist in the
+                                         * iPXE revision currently being parsed. Say so
+                                         * rather than silently applying a subset --
+                                         * options do get renamed and removed upstream,
+                                         * and a quietly partial preset is worse than a
+                                         * noisy one. */
+                                        unknown.push(key);
+                                        return;
+                                }
+                                var value = preset.options[key];
+                                if (input.type === 'checkbox') {
+                                        /* presets.php has to allow strings, because
+                                         * value options need them, so a string can
+                                         * still reach a checkbox here. Anything
+                                         * outside the boolean domain would otherwise
+                                         * read as false and quietly turn the option
+                                         * off -- "true" and "2" being the easy
+                                         * mistakes to make by hand. Report instead. */
+                                        if (value !== 0 && value !== 1 && value !== '0' &&
+                                            value !== '1' && value !== true && value !== false) {
+                                                badValues.push(key);
+                                                return;
+                                        }
+                                        input.checked = (value === 1 || value === '1' || value === true);
+                                } else {
+                                        input.value = String(value);
+                                }
+                                /* Read by buildcfgParams() -- see the note there
+                                 * on why a preset's values are sent explicitly. */
+                                input.dataset.presetApplied = '1';
+                                applied += 1;
+                        });
+
+                        var notes = [];
+
+                        if (preset.outputformat) {
+                                var outputSelect = document.getElementById('outputformatadv');
+                                /* The output list carries "-" and "--" as its
+                                 * placeholder and separator rows. They are real
+                                 * <option> values, so a preset naming one would
+                                 * otherwise be accepted and then leave
+                                 * buildcfgParams() splitting a string with no
+                                 * "/" in it -- an undefined binary, and a throw
+                                 * on the next indexOf(). Presets are untrusted
+                                 * input, so reject them here. */
+                                if (preset.outputformat === '-' || preset.outputformat === '--') {
+                                        notes.push('output format "' + preset.outputformat + '" is not a buildable format');
+                                } else if (selectHasValue(outputSelect, preset.outputformat)) {
+                                        outputSelect.value = preset.outputformat;
+                                        outputSelect.dispatchEvent(new Event('change'));
+                                } else {
+                                        notes.push('output format "' + preset.outputformat + '" is not offered by this build');
+                                }
+                        }
+
+                        if (preset.revision) {
+                                var revisionSelect = document.getElementById('gitrevision');
+                                if (selectHasValue(revisionSelect, preset.revision)) {
+                                        revisionSelect.value = preset.revision;
+                                        revisionSelect.dispatchEvent(new Event('change'));
+                                } else {
+                                        /* Worth saying out loud: the option set a preset
+                                         * was written against belongs to a specific iPXE
+                                         * revision. */
+                                        notes.push('revision "' + preset.revision + '" is not in the revision list, so these options are being applied to a different iPXE revision than the preset was written for');
+                                }
+                        }
+
+                        if (typeof preset.embed === 'string') {
+                                document.getElementById('embed').value = preset.embed;
+                        }
+
+                        if (preset.requires_trust_cert) {
+                                document.getElementById('trust_custom').click();
+                        }
+
+                        var summary = 'Applied ' + applied + ' option' + (applied === 1 ? '' : 's') + ' from "' + preset.name + '".';
+                        if (unknown.length > 0) {
+                                notes.push(unknown.length === 1
+                                        ? '1 option in this preset does not exist in the iPXE revision loaded here and was skipped: ' + unknown[0]
+                                        : unknown.length + ' options in this preset do not exist in the iPXE revision loaded here and were skipped: ' + unknown.join(', '));
+                        }
+                        if (badValues.length > 0) {
+                                notes.push(badValues.length + ' on/off option' + (badValues.length === 1 ? '' : 's') +
+                                        ' in this preset had a value that is neither 0 nor 1 and ' +
+                                        (badValues.length === 1 ? 'was' : 'were') + ' left at the default: ' +
+                                        badValues.join(', '));
+                        }
+                        setPresetStatus(notes.length > 0 ? summary + ' ' + notes.join('. ') + '.' : summary,
+                                        notes.length > 0);
+                } finally {
+                        applyingPreset = false;
+                }
+        }
+
+        /* The preset currently selected, or null for None/Custom. */
+        function activePreset() {
+                if (!presetSelect) { return null; }
+                var value = presetSelect.value;
+                if (value === PRESET_NONE || value === PRESET_CUSTOM) { return null; }
+                return presets[parseInt(value, 10)] || null;
+        }
+
+        function markPresetCustom() {
+                if (!presetSelect || presetSelect.value === PRESET_CUSTOM) { return; }
+                if (presetSelect.value === PRESET_NONE) { return; }
+                presetSelect.value = PRESET_CUSTOM;
+                setPresetDescription(null);
+                setPresetStatus('Options edited by hand -- no longer matching a preset.');
+        }
+
+        fetchJSON("presets.php", function(data) {
+                return Array.isArray(data) && data.every(function(preset) {
+                        return preset && typeof preset.name === 'string' &&
+                                preset.options && typeof preset.options === 'object';
+                });
+        }, function(data) {
+                presets = data;
+                presetsReady = true;
+                if (!presetSelect) { return; }
+
+                var presetOptions = document.createDocumentFragment();
+                presetOptions.appendChild(makeOption(PRESET_NONE, 'None (iPXE defaults)', true));
+                for (var i = 0; i < presets.length; i++) {
+                        presetOptions.appendChild(makeOption(String(i), presets[i].name));
+                }
+                /* Reachable only by editing an option after applying a preset,
+                 * never chosen directly -- hence disabled. */
+                var custom = makeOption(PRESET_CUSTOM, 'Custom (modified)');
+                custom.disabled = true;
+                presetOptions.appendChild(custom);
+                presetSelect.replaceChildren(presetOptions);
+
+                refreshPresetAvailability();
+        })
+
+        if (presetSelect) {
+                presetSelect.addEventListener('change', function() {
+                        var value = presetSelect.value;
+                        if (value === PRESET_CUSTOM) { return; }
+                        if (value === PRESET_NONE) {
+                                applyingPreset = true;
+                                try {
+                                        restorePresetBaseline();
+                                        resetOptionsToDefaults();
+                                } finally {
+                                        applyingPreset = false;
+                                }
+                                setPresetDescription(null);
+                                setPresetStatus('Reset to iPXE defaults.');
+                                return;
+                        }
+                        var preset = presets[parseInt(value, 10)];
+                        if (!preset) { return; }
+                        setPresetDescription(preset);
+                        applyPreset(preset);
+                });
+        }
+
+        /* Any hand edit to an option means the form no longer represents the
+         * chosen preset. Deliberately scoped to #options only: supplying a
+         * certificate, or anything else in the per-site sections, is input a
+         * preset cannot carry rather than a deviation from it. */
+        var optionsContainer = document.getElementById('options');
+        if (optionsContainer) {
+                ['change', 'input'].forEach(function(eventName) {
+                        optionsContainer.addEventListener(eventName, function() {
+                                if (applyingPreset) { return; }
+                                markPresetCustom();
+                        });
+                });
+        }
+
+        /* The output format, revision and embedded script are preset-controlled
+         * too, so editing one of those also means the form has stopped
+         * matching the chosen preset. The certificate is deliberately not in
+         * this list: it is per-site input a preset cannot carry, so supplying
+         * one is not a deviation from the preset.
+         *
+         * The two ways a script arrives without the user typing it -- the file
+         * picker and the drop zone -- assign to #embed directly, and assigning
+         * to .value fires no event, so those paths dispatch one explicitly
+         * (see the embedded-script handling further down). */
+        ['outputformatadv', 'gitrevision', 'embed'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (!el) { return; }
+                ['change', 'input'].forEach(function(eventName) {
+                        el.addEventListener(eventName, function() {
+                                if (applyingPreset) { return; }
+                                markPresetCustom();
+                        });
+                });
+        });
+
+        /* Trust mode, but only in one direction. A preset that declares
+         * requires_trust_cert has custom trust as part of what it asks for,
+         * so turning that back off means the form no longer matches it --
+         * and the resulting build would quietly lack the certificate the
+         * preset exists to carry. Turning custom trust *on* is not drift:
+         * supplying a certificate is per-site input a preset cannot carry,
+         * and a preset that does not ask for one has no opinion either way.
+         * The certificate inputs themselves are never watched. */
+        document.querySelectorAll('input[name=trustmode]').forEach(function(radio) {
+                radio.addEventListener('change', function() {
+                        if (applyingPreset) { return; }
+                        var preset = activePreset();
+                        if (!preset || !preset.requires_trust_cert) { return; }
+                        var mode = document.querySelector('input[name=trustmode]:checked');
+                        if (mode && mode.value !== 'custom') { markPresetCustom(); }
+                });
+        });
 
         /* Reset from on reload */
         document.querySelector('input[name=wizardtype]').checked = true;
@@ -482,11 +885,28 @@ onReady(function() {
                          * on the key is part of the wire format build.fcgi
                          * expects for boolean overrides, not a typo -- see
                          * the matching strip in loadcfg(). */
+                        /* Options touched by a preset are submitted even when
+                         * they match the displayed default, because for some
+                         * options that default is not what the build will
+                         * actually use. parseheaders.py reports one default per
+                         * option, taken from the header's top level, but a
+                         * platform block can override it for the target being
+                         * built: upstream general.h defines PARAM_CMD, CERT_CMD
+                         * and six others at the top level and then #undefs them
+                         * under "#if defined ( PLATFORM_pcbios )". They display
+                         * as enabled, so a preset asking for them enabled would
+                         * look like "no change", send nothing, and leave the
+                         * BIOS build with them off -- which for PARAM_CMD means
+                         * every legacy-BIOS client fails to boot. Sending a
+                         * preset's values explicitly makes the request say what
+                         * it means; build.fcgi writes them into
+                         * config/local/*.h, which the headers include last. */
                         document.querySelectorAll('#options input[type=checkbox]').forEach(function(input, index) {
                                 var name = input.name;
                                 var value = input.checked ? 1 : 0;
-                                if (input.value != value) {
-                                        console.log( "Checkbox:" + index + ": " + name + " default: " + input.value + " new: " + input.checked );
+                                var fromPreset = input.dataset.presetApplied === '1';
+                                if (input.value != value || fromPreset) {
+                                        console.log( "Checkbox:" + index + ": " + name + " default: " + input.value + " new: " + input.checked + (fromPreset ? " (preset)" : "") );
                                         optionEntries.push([name + ":", value]);
                                 }
                         });
@@ -494,8 +914,9 @@ onReady(function() {
                         document.querySelectorAll('#options input[type=text]').forEach(function(input, index) {
                                 var name = input.name;
                                 var placeholder = input.placeholder;
-                                if (input.value != placeholder) {
-                                        console.log( "Text:" + index + ": " + name + " default: " + input.placeholder + " new: " + input.value);
+                                var fromPreset = input.dataset.presetApplied === '1';
+                                if (input.value != placeholder || fromPreset) {
+                                        console.log( "Text:" + index + ": " + name + " default: " + input.placeholder + " new: " + input.value + (fromPreset ? " (preset)" : "") );
                                         optionEntries.push([name, input.value]);
                                 }
                         });
@@ -788,6 +1209,156 @@ onReady(function() {
                         popup.showModal();
                 });
 
+                /* Export the current form state as a preset file, so a site
+                 * can turn a configuration it just built into something
+                 * reusable (see presets/README.md) without hand-converting
+                 * the "Save buildcfg" URL. Boolean option keys carry a
+                 * trailing ":" in that URL, which the preset format does not
+                 * use -- doing this by hand means noticing that, or having
+                 * presets.php silently drop every boolean as malformed. */
+                document.getElementById('savepreset').addEventListener('click', function(e) {
+                        e.preventDefault();
+                        /* Same validation path as the other two buttons: an
+                         * invalid PCI ID or unvalidated certificate shows its
+                         * inline error and stops here. omitTrustCert, since a
+                         * certificate is per-site input a preset must not
+                         * carry. */
+                        var params = buildcfgParams(true);
+                        if (!params) { return; }
+
+                        content.replaceChildren();
+
+                        var heading = document.createElement('h2');
+                        heading.textContent = 'Save as preset';
+                        content.appendChild(heading);
+
+                        var intro = document.createElement('p');
+                        intro.textContent = 'Name this configuration, then download it. Drop the file into the presets directory to have it offered in the dropdown.';
+                        content.appendChild(intro);
+
+                        function field(labelText, id, placeholder) {
+                                var wrap = document.createElement('p');
+                                var label = document.createElement('label');
+                                label.setAttribute('for', id);
+                                label.textContent = labelText;
+                                var input = document.createElement('input');
+                                input.type = 'text';
+                                input.id = id;
+                                input.size = 40;
+                                input.placeholder = placeholder;
+                                wrap.appendChild(label);
+                                wrap.appendChild(document.createElement('br'));
+                                wrap.appendChild(input);
+                                content.appendChild(wrap);
+                                return input;
+                        }
+                        var nameInput = field('Preset name:', 'preset_save_name', 'My deployment');
+                        var descInput = field('Description (optional):', 'preset_save_description', 'What this is for');
+
+                        var error = document.createElement('div');
+                        error.className = 'fetch-status error';
+                        error.style.display = 'none';
+                        content.appendChild(error);
+
+                        var actions = document.createElement('p');
+                        var download = document.createElement('button');
+                        download.type = 'button';
+                        download.className = 'savebutton';
+                        download.style.fontSize = '16px';
+                        download.textContent = 'Download .json';
+                        actions.appendChild(download);
+                        content.appendChild(actions);
+
+                        var preview = document.createElement('pre');
+                        preview.style.maxHeight = '260px';
+                        preview.style.overflow = 'auto';
+                        preview.style.fontSize = '12px';
+                        content.appendChild(preview);
+
+                        /* Rebuilt on every keystroke so the preview always
+                         * matches what the download will contain. */
+                        function buildPreset() {
+                                var options = {};
+                                params.forEach(function(value, key) {
+                                        if (key.indexOf('.h/') === -1) { return; }
+                                        /* Booleans arrive as "header.h/NAME:";
+                                         * the preset format keys them without
+                                         * the trailing colon. */
+                                        var name = key.replace(/:$/, '');
+                                        options[name] = key.charAt(key.length - 1) === ':'
+                                                ? Number(value) : value;
+                                });
+                                var preset = { name: nameInput.value.trim() || 'Unnamed preset' };
+                                if (descInput.value.trim()) { preset.description = descInput.value.trim(); }
+                                /* This button sits in the shared build section,
+                                 * so it is reachable from either wizard -- read
+                                 * whichever output select the active one is
+                                 * actually using, rather than always the
+                                 * advanced one, which a standard-wizard user
+                                 * has never touched. */
+                                var wizard = document.querySelector('input[name=wizardtype]:checked').value;
+                                var outputformat = document.getElementById(
+                                        wizard === 'standard' ? 'outputformatstd' : 'outputformatadv').value;
+                                if (outputformat && outputformat !== '-' && outputformat !== '--') {
+                                        preset.outputformat = outputformat;
+                                }
+                                /* Record that a certificate is needed, while
+                                 * still never carrying the certificate itself:
+                                 * without this, reapplying the preset silently
+                                 * leaves standard trust selected and produces a
+                                 * build that trusts nothing extra. */
+                                var trustMode = document.querySelector('input[name=trustmode]:checked');
+                                if (trustMode && trustMode.value === 'custom') {
+                                        preset.requires_trust_cert = true;
+                                }
+                                var revision = params.get('REVISION');
+                                if (revision) { preset.revision = revision; }
+                                var embed = params.get('EMBED.00script.ipxe');
+                                if (embed) { preset.embed = embed; }
+                                preset.options = options;
+                                return preset;
+                        }
+
+                        function refreshPreview() {
+                                preview.textContent = JSON.stringify(buildPreset(), null, 2);
+                        }
+                        nameInput.addEventListener('input', refreshPreview);
+                        descInput.addEventListener('input', refreshPreview);
+                        refreshPreview();
+
+                        download.addEventListener('click', function() {
+                                var name = nameInput.value.trim();
+                                if (!name) {
+                                        error.textContent = 'Give the preset a name first.';
+                                        error.style.display = '';
+                                        nameInput.focus();
+                                        return;
+                                }
+                                error.style.display = 'none';
+                                /* Filename derived from the name, reduced to
+                                 * characters that are safe on every filesystem
+                                 * rather than trusting whatever was typed. */
+                                var filename = (name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+                                        .replace(/^-+|-+$/g, '') || 'preset') + '.json';
+                                var blob = new Blob([JSON.stringify(buildPreset(), null, 2) + '\n'],
+                                        { type: 'application/json' });
+                                var url = URL.createObjectURL(blob);
+                                var link = document.createElement('a');
+                                link.href = url;
+                                link.download = filename;
+                                document.body.appendChild(link);
+                                link.click();
+                                link.remove();
+                                /* Deferred, as with the build download above:
+                                 * revoking straight away can invalidate the URL
+                                 * before some browsers have started reading it. */
+                                setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+                        });
+
+                        popup.showModal();
+                        nameInput.focus();
+                });
+
                 setTimeout(loadcfg, 50);
         })();
 
@@ -833,7 +1404,14 @@ onReady(function() {
                         var reader = new FileReader();
                         reader.onload = function(e) {
                                 var content = e.target.result;
-                                document.getElementById('embed').value = content;
+                                var embedField = document.getElementById('embed');
+                                embedField.value = content;
+                                /* Assigning to .value fires nothing, so tell
+                                 * the preset drift listener the script changed
+                                 * -- otherwise loading a script from a file or
+                                 * the drop zone leaves a preset still shown as
+                                 * applied while its script has been replaced. */
+                                embedField.dispatchEvent(new Event('input', { bubbles: true }));
                                 if (content.indexOf("#!ipxe") === -1) {
                                         showMessage(' Not a iPXE script ', true);
                                 }
@@ -929,12 +1507,32 @@ onReady(function() {
                         previewEl.style.display = '';
                 }
 
+                /* Incremented for every validation started, and for anything
+                 * that invalidates one (a new certificate, or leaving custom
+                 * trust). A response only counts if its generation is still
+                 * the current one.
+                 *
+                 * Without this, two validations in flight together can land
+                 * in either order, so an earlier certificate could overwrite
+                 * a later one -- or a response arriving after the user
+                 * switched back to standard trust could put trustCertPem
+                 * back, leaving a certificate that is no longer on screen
+                 * baked into the next build. */
+                var validationGeneration = 0;
+
+                function invalidatePendingValidation() {
+                        validationGeneration += 1;
+                }
+
                 function validate(formData) {
+                        invalidatePendingValidation();
+                        var generation = validationGeneration;
                         setStatus('Validating certificate...', false);
                         clearPreview();
                         fetch('certificate.php', { method: 'POST', body: formData })
                                 .then(function(response) { return response.json(); })
                                 .then(function(data) {
+                                        if (generation !== validationGeneration) { return; }
                                         if (data.error) {
                                                 setStatus(data.error, true);
                                                 return;
@@ -947,6 +1545,7 @@ onReady(function() {
                                                 'Certificate validated.', expired);
                                 })
                                 .catch(function(err) {
+                                        if (generation !== validationGeneration) { return; }
                                         setStatus('Could not validate certificate: ' + err.message, true);
                                 });
                 }
@@ -981,6 +1580,10 @@ onReady(function() {
                                         textInput.value = '';
                                         clearPreview();
                                         setStatus(null);
+                                        /* A validation already in flight must not be
+                                         * allowed to land and restore the certificate
+                                         * that was just cleared. */
+                                        invalidatePendingValidation();
                                 }
                         });
                 });

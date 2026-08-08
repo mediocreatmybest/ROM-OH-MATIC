@@ -10,7 +10,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 
 from parseheaders import (  # noqa: E402
     eval_c_int_expression,
+    is_include_guard,
     parse_file,
+    scan_directives,
     strip_comment_markers,
 )
 
@@ -46,6 +48,13 @@ class EvalCIntExpressionTests(unittest.TestCase):
 
     def test_unsupported_operator_returns_none(self):
         self.assertIsNone(eval_c_int_expression('2 ** 3', {}))
+
+    def test_non_integer_known_value_returns_none(self):
+        # known_values is caller-supplied; a non-integer in it must not
+        # escape as a TypeError, since the contract is to return None
+        # rather than guess.
+        self.assertIsNone(eval_c_int_expression('A / B', {'A': 'str', 'B': 2}))
+        self.assertIsNone(eval_c_int_expression('A + B', {'A': 'str', 'B': 2}))
 
     def test_syntax_error_returns_none(self):
         self.assertIsNone(eval_c_int_expression('2 *', {}))
@@ -161,6 +170,46 @@ class ParseFileTests(unittest.TestCase):
         self.assertNotIn('CONFIG_GENERAL_H', names)
         self.assertEqual(names, ['FOO'])
 
+    def test_whitespace_between_hash_and_directive(self):
+        # "#   define NAME" is valid C and appears elsewhere in the iPXE
+        # tree. An unmatched directive is silently treated as an unrelated
+        # line, so failing to match here loses the option altogether.
+        content = '#  ifdef SOMETHING\n#   define SPACED\n#  endif\n#\tundef TABBED\n'
+        path = self._write('general.h', content)
+        entries = parse_file(path, 'general.h')
+        self.assertEqual([(e['name'], e['type']) for e in entries],
+                         [('SPACED', 'define'), ('TABBED', 'undef')])
+
+    def test_include_guard_with_comment_between_halves(self):
+        # A comment sitting inside the guard must not hide it: if the guard
+        # goes unrecognised the whole file counts as one conditional, every
+        # option sits at depth 1 or deeper, and dedupe_records() can never
+        # prefer a top-level definition.
+        for comment in ('/* The include guard */', '// guard', '/* a\n   b */'):
+            content = ('#ifndef CONFIG_GENERAL_H\n' + comment +
+                       '\n#define CONFIG_GENERAL_H\n#define FOO\n#endif\n')
+            path = self._write('general.h', content)
+            entries = parse_file(path, 'general.h')
+            names = [e['name'] for e in entries]
+            self.assertNotIn('CONFIG_GENERAL_H', names, comment)
+            self.assertEqual(names, ['FOO'], comment)
+
+    def test_include_guard_with_trailing_comment_is_skipped(self):
+        content = ('#ifndef CONFIG_GENERAL_H /* guard */\n'
+                   '#define CONFIG_GENERAL_H /* guard */\n'
+                   '#define FOO\n#endif\n')
+        path = self._write('general.h', content)
+        names = [e['name'] for e in parse_file(path, 'general.h')]
+        self.assertNotIn('CONFIG_GENERAL_H', names)
+        self.assertEqual(names, ['FOO'])
+
+    def test_include_guard_with_blank_line_is_skipped(self):
+        content = '#ifndef CONFIG_GENERAL_H\n\n#define CONFIG_GENERAL_H\n#define FOO\n#endif\n'
+        path = self._write('general.h', content)
+        names = [e['name'] for e in parse_file(path, 'general.h')]
+        self.assertNotIn('CONFIG_GENERAL_H', names)
+        self.assertEqual(names, ['FOO'])
+
     def test_function_like_macro_is_skipped(self):
         content = '#define NAMED_CONFIG(_header) <config/CONFIG/_header>\n'
         path = self._write('named.h', content)
@@ -199,6 +248,188 @@ class ParseFileTests(unittest.TestCase):
         path = self._write('general.h', content)
         entries = parse_file(path, 'general.h')
         self.assertEqual(entries[0]['description'], 'FOO')
+
+
+class ConditionalDepthTests(unittest.TestCase):
+    """Directives are tagged with the conditional-block depth they sit at,
+    ignoring the file's own include guard."""
+
+    def test_include_guard_recognised(self):
+        lines = ['#ifndef CONFIG_FOO_H', '#define CONFIG_FOO_H', '#define BAR']
+        self.assertTrue(is_include_guard(lines, 0))
+
+    def test_include_guard_recognised_across_blank_line(self):
+        lines = ['#ifndef CONFIG_FOO_H', '', '#define CONFIG_FOO_H']
+        self.assertTrue(is_include_guard(lines, 0))
+
+    def test_plain_ifndef_is_not_an_include_guard(self):
+        lines = ['#ifndef SOMETHING', '#define OTHER_NAME']
+        self.assertFalse(is_include_guard(lines, 0))
+
+    def test_include_guard_does_not_count_as_depth(self):
+        lines = ['#ifndef CONFIG_FOO_H', '#define CONFIG_FOO_H',
+                 '#define BAR', '#endif']
+        records = scan_directives(lines)
+        self.assertEqual([r['name'] for r in records], ['BAR'])
+        self.assertEqual(records[0]['depth'], 0)
+
+    def test_include_guard_define_skipped_across_blank_line(self):
+        # The guard test tolerates a blank line before the #define, so the
+        # skip has to as well -- otherwise the guard symbol itself is
+        # reported as a build option.
+        lines = ['#ifndef CONFIG_FOO_H', '', '#define CONFIG_FOO_H',
+                 '#define BAR', '#endif']
+        self.assertEqual([r['name'] for r in scan_directives(lines)], ['BAR'])
+
+    def test_nested_ifndef_define_is_not_treated_as_a_file_guard(self):
+        # "#ifndef NAME / #define NAME" nested inside a conditional is the
+        # ordinary way a header supplies a default without overriding a
+        # value already set. Mistaking it for the file's include guard
+        # dropped the option entirely and undercounted the depth.
+        lines = ['#ifndef CONFIG_FOO_H', '#define CONFIG_FOO_H',
+                 '#if defined ( PLATFORM_pcbios )',
+                 '#ifndef NEEDS_DEFAULT', '#define NEEDS_DEFAULT', '#endif',
+                 '#endif',
+                 '#define REAL', '#endif']
+        records = scan_directives(lines)
+        self.assertEqual([r['name'] for r in records], ['NEEDS_DEFAULT', 'REAL'])
+        self.assertEqual(records[0]['depth'], 2)
+        self.assertEqual(records[1]['depth'], 0)
+
+    def test_define_matching_a_non_guard_ifndef_is_kept(self):
+        # "#ifndef SOMETHING" followed by a define of a DIFFERENT name is
+        # ordinary conditional code, and that define is a real option.
+        lines = ['#ifndef SOMETHING', '#define OTHER_NAME', '#endif']
+        self.assertEqual([r['name'] for r in scan_directives(lines)],
+                         ['OTHER_NAME'])
+
+    def test_conditional_block_increases_depth(self):
+        lines = ['#define TOP', '#if defined ( PLATFORM_pcbios )',
+                 '#define INNER', '#endif', '#define AFTER']
+        depths = {r['name']: r['depth'] for r in scan_directives(lines)}
+        self.assertEqual(depths, {'TOP': 0, 'INNER': 1, 'AFTER': 0})
+
+    def test_nested_conditionals(self):
+        lines = ['#if defined ( A )', '#if defined ( B )', '#define DEEP',
+                 '#endif', '#endif']
+        self.assertEqual(scan_directives(lines)[0]['depth'], 2)
+
+    def test_else_keeps_same_depth(self):
+        lines = ['#if defined ( A )', '#define ONE', '#else',
+                 '#define TWO', '#endif']
+        depths = {r['name']: r['depth'] for r in scan_directives(lines)}
+        self.assertEqual(depths, {'ONE': 1, 'TWO': 1})
+
+    def test_ifdef_counts_as_conditional(self):
+        lines = ['#ifdef SOMETHING', '#define INNER', '#endif']
+        self.assertEqual(scan_directives(lines)[0]['depth'], 1)
+
+
+class DedupeTests(unittest.TestCase):
+    """The same option name can appear more than once in one header; only
+    one entry should reach the UI."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+
+    def _parse(self, name, content, known=None):
+        path = os.path.join(self._tmpdir.name, name)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return parse_file(path, name, known)
+
+    def test_top_level_beats_platform_guarded_undef(self):
+        # console.h's real shape: a general default, then a pcbios block
+        # that turns it off again.
+        content = (
+            '#define CONSOLE_FRAMEBUFFER\n'
+            '#if defined ( PLATFORM_pcbios )\n'
+            '#undef CONSOLE_FRAMEBUFFER\n'
+            '#endif\n'
+        )
+        entries = self._parse('console.h', content)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]['type'], 'define')
+
+    def test_all_guarded_uses_first_occurrence(self):
+        # CONSOLE_SERIAL: off inside one guard, on inside a narrower one.
+        content = (
+            '#if ! defined ( SERIAL_NULL )\n'
+            '//#define CONSOLE_SERIAL\n'
+            '#endif\n'
+            '#if defined ( CONSOLE_SBI )\n'
+            '#define CONSOLE_SERIAL\n'
+            '#endif\n'
+        )
+        entries = self._parse('console.h', content)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]['type'], 'undef')
+
+    def test_active_value_beats_commented_alternative(self):
+        # dhcp.h documents an alternative value on a commented-out line.
+        content = (
+            '#define DHCP_DISC_START_TIMEOUT_SEC\t1\n'
+            '//#define DHCP_DISC_START_TIMEOUT_SEC\t4\t/* as per PXE spec */\n'
+        )
+        entries = self._parse('dhcp.h', content)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]['value'], '1')
+
+    def test_commented_alternative_does_not_poison_known_values(self):
+        content = (
+            '#define TIMEOUT\t1\n'
+            '//#define TIMEOUT\t4\t/* as per PXE spec */\n'
+        )
+        known = {}
+        self._parse('dhcp.h', content, known)
+        self.assertEqual(known['TIMEOUT'], 1)
+
+    def test_lone_commented_value_is_still_offered(self):
+        # No active counterpart: keep it, so the option stays settable.
+        content = '//#define OPTIONAL_THING\t42\n'
+        entries = self._parse('general.h', content)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]['value'], '42')
+
+    def test_commented_value_is_marked_as_not_set(self):
+        # The value on a commented-out line is a suggestion, not a setting,
+        # but the input box renders it exactly like an active one.
+        content = '//#define EARLY_UART_MODEL\t8250\t/* UART model */\n'
+        entries = self._parse('serial.h', content)
+        self.assertIn('not set by default', entries[0]['description'])
+
+    def test_active_value_is_not_marked(self):
+        content = '#define REAL_THING\t7\t/* something */\n'
+        entries = self._parse('general.h', content)
+        self.assertNotIn('not set by default', entries[0]['description'])
+
+    def test_last_top_level_definition_wins(self):
+        content = '#define THING\t1\n#define THING\t2\n'
+        entries = self._parse('general.h', content)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]['value'], '2')
+
+    def test_deduped_option_keeps_first_occurrence_position(self):
+        # The UI inserts section headings by walking entries in order, so
+        # collapsing a later duplicate must not move the option.
+        content = (
+            '#define ALPHA\n'
+            '#define BETA\n'
+            '#if defined ( PLATFORM_pcbios )\n'
+            '#undef ALPHA\n'
+            '#endif\n'
+            '#define GAMMA\n'
+        )
+        entries = self._parse('general.h', content)
+        self.assertEqual([e['name'] for e in entries], ['ALPHA', 'BETA', 'GAMMA'])
+
+    def test_distinct_options_are_untouched(self):
+        content = '#define ONE\n#undef TWO\n//#define THREE\n'
+        entries = self._parse('general.h', content)
+        self.assertEqual([e['name'] for e in entries], ['ONE', 'TWO', 'THREE'])
+        self.assertEqual([e['type'] for e in entries],
+                         ['define', 'undef', 'undef'])
 
 
 if __name__ == '__main__':

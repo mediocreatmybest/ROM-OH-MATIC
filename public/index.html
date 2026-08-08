@@ -22,6 +22,7 @@
 			<a href="https://ipxe.org" title="iPXE website" target="_blank">Generate iPXE images</a> | <a href="#" id="about" title="About this website">About</a>
 		</h1>
 		<dialog id="about_pop_up"><a href="#" class="b-close">x</a><div class="content"></div></dialog>
+		<div id="columns" class="columns">
 		<div id="wrapper">
 		<form action="#" enctype="multipart/form-data" method="post" id="ipxeimage" name="ipxeimage">
 
@@ -61,6 +62,23 @@
 			</div> <!-- End STD form -->
 
 			<div id="divadvanced" class="divadvanced" style="display: none">
+			<div id="preset" class="preset" style="display: none">
+				<div class="spacer">
+					<h2 class="wizard-header">Start from a preset:</h2>
+					<p>
+						A preset fills in the options below with a known-good set for a
+						particular deployment. Everything stays editable afterwards --
+						changing any option switches this back to "Custom".
+					</p>
+					<span class="option-control">
+						<select id="presetselect" name="presetselect" aria-label="Start from a preset">
+						</select>
+						<span id="preset_help"></span>
+					</span>
+					<div id="preset_status" class="fetch-status" style="display: none"></div>
+				</div>
+			</div>
+
 			<div id="ofmtadv" class="ofmadv">
 				<div class="spacer">
 					<h2 class="wizard-header">Choose an output format:</h2>
@@ -86,9 +104,11 @@
 						<option value="bin/ipxe.kpxe">PXE bootstrap loader keep [Keep PXE stack method 1] (.kpxe)</option>
 						<option value="bin/ipxe.kkpxe">PXE bootstrap loader keep [Keep PXE stack method 2] (.kkpxe)</option>
 						<option value="bin/ipxe.kkkpxe">PXE bootstrap loader keep [Keep PXE stack method 3] (.kkkpxe)</option>
+						<option value="bin/undionly.kpxe">UNDI only (.kpxe)</option>
 						<option value="--">------------------</option>
 						<option value="bin-i386-efi/ipxe.efi">EFI PXE bootstrap 32-bit (.efi)</option>
 						<option value="bin-x86_64-efi/ipxe.efi">EFI PXE bootstrap 64-bit (.efi)</option>
+						<option value="bin-x86_64-efi/snponly.efi">EFI x86_64 snponly (.efi)</option>
 					</select>
 				</div>
 			</div>
@@ -139,10 +159,12 @@
 					</p>
 					<div id="trust_bios_warning" class="notice" style="display: none">
 						<strong>Please note:</strong>
-						The selected output format does not support HTTPS -- this is an
-						<a href="https://github.com/ipxe/ipxe/blob/12798ec29aa8a64d8675c4378b99f5fe28447afb/src/config/general.h#L62-L65" target="_blank">iPXE decision for BIOS-format builds</a>.
-						Adding a certificate trust with this output will not function as intended.
-						Please choose a UEFI output format to use this option.
+						HTTPS is switched off by default for BIOS-format builds -- an
+						<a href="https://github.com/ipxe/ipxe/blob/12798ec29aa8a64d8675c4378b99f5fe28447afb/src/config/general.h#L62-L65" target="_blank">iPXE decision</a>,
+						not a limitation of the format. A certificate on its own will
+						therefore have no effect here. Either choose a UEFI output
+						format, or also enable <code>DOWNLOAD_PROTO_HTTPS</code> in the
+						build configuration options above.
 					</div>
 
 					<input type="radio" name="trustmode" value="standard" id="trust_standard" checked />
@@ -225,6 +247,7 @@
 					<div align="center">
 						<input class="buildbutton" name="proceed" id="proceed" type="submit" value="Proceed &gt;&gt;" />
 						<input class="savebutton" name="save" id="save" type="button" value="Save buildcfg" />
+						<input class="savebutton" name="savepreset" id="savepreset" type="button" value="Save preset" />
 					</div>
 				</div>
 			</div>
@@ -250,6 +273,7 @@
 				</ul>
 			</div>
 		</div>
+		</div> <!-- End columns -->
 
 		<noscript>
 			<div class="noscript">

@@ -94,8 +94,26 @@ h3 span {
 	top:5px;
 }
 
+/* The two columns were float: left / float: right on #wrapper and
+ * #notes. Flexbox does the same job here without the float side effects
+ * -- notably a container that actually contains its children, so nothing
+ * downstream depends on clearing.
+ *
+ * Two declarations here, plus the auto margin on #notes below, are
+ * load-bearing in reproducing the float layout exactly rather than
+ * being decoration:
+ *   flex-start - flex items stretch to equal height by default, which
+ *                would pull the short yellow #notes box down to match
+ *                the very tall #wrapper. Floats never did that.
+ *   wrap       - keeps the narrow-viewport behaviour where #notes drops
+ *                below #wrapper instead of being squeezed alongside it. */
+.columns {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-start;
+}
+
 #wrapper {
-	float: left;
 	width: 50%;
 	background-color: #fff;
 	border: var(--border-grey) 1px solid;
@@ -105,12 +123,18 @@ h3 span {
 }
 
 #notes {
-	float: right;
 	width: 40%;
 	background-color: #ffe;
 	border: var(--border-grey) 1px solid;
 	border-radius: 10px;
 	margin: 10px;
+	/* Stands in for float: right, and must follow the margin shorthand
+	 * above. justify-content on the container would right-align this
+	 * only while both columns share a row; once #notes wraps onto its
+	 * own line it would swing back to the left, whereas the float kept
+	 * it right-aligned in both cases. An auto margin absorbs the free
+	 * space on whichever line #notes ends up on. */
+	margin-left: auto;
 	padding: 10px;
 }
 
@@ -301,6 +325,18 @@ h3 span {
 .option-help-wrap:hover .option-description-popover,
 .option-help-wrap:focus-within .option-description-popover {
 	display: block;
+}
+
+/* Separate paragraphs inside a popover carrying more than one -- the
+ * preset icon shows a description, certificate guidance and provenance
+ * together, which run into each other as one wall of text otherwise. */
+.option-description-popover .popover-para {
+	display: block;
+	margin-bottom: 6px;
+}
+
+.option-description-popover .popover-para:last-child {
+	margin-bottom: 0;
 }
 
 #trust details {
