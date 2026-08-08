@@ -27,7 +27,7 @@ This repository is not part of, or endorsed by, the official [iPXE project](http
 
 ## Current status
 
-The Docker image is automatically built and published from `master`. Automated container startup, HTTP, and application-level iPXE generation tests will hopefully be added.
+The Docker image is automatically built and published from `master`. Every build runs automated container startup, HTTP, and application-level iPXE generation tests before the image is published.
 
 | Capability                    | Current status                             |
 | ----------------------------- | ------------------------------------------ |
@@ -39,7 +39,7 @@ The Docker image is automatically built and published from `master`. Automated c
 | Published platform            | `linux/amd64`                              |
 | Current container base        | Ubuntu 24.04 LTS                           |
 
-A green build badge currently means that the image built and was published. It does not yet prove that the container started or is able to generate an iPXE artefact, but obviously it _should_.
+A green build badge means the image built, started successfully, responded over HTTP, and produced a working iPXE artefact, before being published.
 
 ## Docker image
 

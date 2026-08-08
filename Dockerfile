@@ -2,8 +2,8 @@
 # Dynamic iPXE image generator
 #
 # Copyright (C) 2012-2021 Francois Lacroix. All Rights Reserved.
-# License:  GNU General Public License version 3 or later; see LICENSE.txt
-# Website:  http://ipxe.org, https://github.com/xbgmsharp/ipxe-buildweb
+# License:  GNU General Public License version 3 or later; see LICENSE
+# Website:  https://ipxe.org, https://github.com/xbgmsharp/ipxe-buildweb
 #------------------------------------------------------------------------
 #
 # Ubuntu LTS + Apache2 + module + my app
@@ -19,10 +19,8 @@
 
 # Pull base image.
 # Pinned to a specific LTS release rather than :latest -- ubuntu:latest can
-# resolve to a non-LTS interim release with an incomplete/broken package set
-# (see ARCHITECTURE.md's M0 baseline evidence), which isn't something a
-# Docker build should be at the mercy of. Revisit under M8.1 once the
-# project has an intentional, documented base-image policy.
+# resolve to a non-LTS interim release with an incomplete/broken package set,
+# which isn't something a Docker build should be at the mercy of.
 FROM ubuntu:24.04
 LABEL maintainer="Francois Lacroix <xbgmsharp@gmail.com>"
 
@@ -45,7 +43,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV GIT_SSL_VERIFY=true
 # Frozen by default: a SHA/version-tagged image should run the exact
 # revision baked in at build time. Set to "true" to pull updates on every
-# container start instead (see ARCHITECTURE.md ADR-004).
+# container start instead.
 ENV UPDATE_ON_START=false
 # SSH is off by default -- no hard-coded password, no default root access.
 # Set to "true" plus SSH_AUTHORIZED_KEY (preferred) or SSH_ROOT_PASSWORD to

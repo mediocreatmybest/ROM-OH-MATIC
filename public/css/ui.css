@@ -3,10 +3,36 @@
  * Dynamic iPXE image generator
  *
  * Copyright (C) 2012-2021 Francois Lacroix. All Rights Reserved.
- * Website: http://ipxe.org, https://github.com/xbgmsharp/ipxe-buildweb
- * License: GNU General Public License version 3 or later; see LICENSE.txt
+ * Website: https://ipxe.org, https://github.com/xbgmsharp/ipxe-buildweb
+ * License: GNU General Public License version 3 or later; see LICENSE
  * ================================================================================
  */
+
+/* Shared design tokens for the few colors that get reused verbatim
+ * across otherwise-unrelated rules below, so a color change is a
+ * one-line edit instead of a grep across the file. */
+:root {
+	--border-grey: #ddd;
+	--dashed-grey: rgb(187, 187, 187);
+	--shadow-grey: #aaa;
+}
+
+/* Reserve the scrollbar's width up front so switching between the
+ * Standard and Advanced wizard forms (which differ a lot in height)
+ * never shifts the floated #wrapper/#notes layout sideways just because
+ * the page crossed the overflow threshold and a scrollbar popped in.
+ * Trade-off: this reserves the gutter by shrinking the initial
+ * containing block itself, so h1's background bar sits that same
+ * amount short of the true edge in every browser tested (Chromium and
+ * Firefox both tie 100vw to that same reduced block, so there's no
+ * pure-CSS way to bleed it back out -- confirmed by testing, not left
+ * unfixed by oversight). A few px of page background next to the
+ * header was judged less noticeable than either the original jump or
+ * an always-visible scrollbar track on pages with nothing to scroll. */
+html {
+	scrollbar-gutter: stable;
+}
+
 body {
 	background-color: #eee;
 	font-family: "Arial", "Helvetica", "Verdana", "sans-serif";
@@ -72,7 +98,7 @@ h3 span {
 	float: left;
 	width: 50%;
 	background-color: #fff;
-	border: #ddd 1px solid;
+	border: var(--border-grey) 1px solid;
 	border-radius: 10px;
 	margin: 10px;
 	padding: 10px;
@@ -82,7 +108,7 @@ h3 span {
 	float: right;
 	width: 40%;
 	background-color: #ffe;
-	border: #ddd 1px solid;
+	border: var(--border-grey) 1px solid;
 	border-radius: 10px;
 	margin: 10px;
 	padding: 10px;
@@ -93,38 +119,27 @@ h3 span {
 }
 
 #drop_zone {
-	border: 2px dashed rgb(187, 187, 187);
-	border-radius: 5px 5px 5px 5px;
+	border: 2px dashed var(--dashed-grey);
+	border-radius: 5px;
 	padding: 25px;
 	text-align: center;
-	color: rgb(187, 187, 187);
+	color: var(--dashed-grey);
 }
 
-#W3valid {
-	position: fixed;
-	right: 0px;
-	bottom: 0px;
+.help, .help_buildcfg {
+	cursor: help;
+	text-decoration: none;
 }
 
 .help {
-	cursor: help;
 	color: #666;
-	text-decoration: none;
-}
-
-.help:hover{
-	cursor: help;
-	color: #000;
-	text-decoration: underline;
 }
 
 .help_buildcfg {
-	cursor: help;
 	color: #000;
-	text-decoration: none;
 }
 
-.help_buildcfg:hover{
+.help:hover, .help_buildcfg:hover {
 	cursor: help;
 	color: #000;
 	text-decoration: underline;
@@ -166,7 +181,7 @@ h3 span {
 
 .wizard-header {
 	background-color: #f4f4f4;
-	border-bottom: #ddd 1px solid;
+	border-bottom: var(--border-grey) 1px solid;
 	border-top-left-radius: 10px;
 	border-top-right-radius: 10px;
 	padding: 5px 10px;
@@ -175,7 +190,7 @@ h3 span {
 
 .wizard-option {
 	background-color: #f1f1f1;
-	border-bottom: #ddd 1px solid;
+	border-bottom: var(--border-grey) 1px solid;
 	border-top-left-radius: 10px;
 	border-top-right-radius: 10px;
 	padding: 5px 20px;
@@ -191,15 +206,14 @@ h3 span {
 	bottom: 50%;
 }
 
-#result,#build,#gitversion,#debug,#embedded {
+#build,#gitversion,#debug,#embedded {
 	display: none;
 }
 
 #options {
-	box-shadow: 0px 0px 3px #aaa;
-	border-radius: 10px;
-	border: 2px dashed rgb(187, 187, 187);
-	border-radius: 5px 5px 5px 5px;
+	box-shadow: 0px 0px 3px var(--shadow-grey);
+	border: 2px dashed var(--dashed-grey);
+	border-radius: 5px;
 }
 
 #options label {
@@ -309,72 +323,55 @@ h3 span {
 	font-size: 13px;
 	line-height: 1.5;
 	max-width: 600px;
+
+	& .cert-field-name {
+		font-weight: bold;
+	}
+
+	& .cert-fingerprint {
+		font-family: monospace;
+		word-break: break-all;
+	}
+
+	& .cert-block {
+		margin-bottom: 10px;
+		padding-bottom: 10px;
+		border-bottom: 1px solid #eee;
+
+		&:last-child {
+			margin-bottom: 0;
+			padding-bottom: 0;
+			border-bottom: none;
+		}
+	}
 }
 
-#trust_cert_preview .cert-field-name {
+.buildbutton, .savebutton {
+	border: none;
+	outline: none;
+	border-radius: 10px;
+	color: #ffffff;
+	display: inline;
+	cursor:pointer;
+	margin: 0px auto;
+	clear: both;
+	padding: 7px 25px;
+	text-shadow: 0 1px 1px #777;
 	font-weight: bold;
-}
-
-#trust_cert_preview .cert-fingerprint {
-	font-family: monospace;
-	word-break: break-all;
-}
-
-#trust_cert_preview .cert-block {
-	margin-bottom: 10px;
-	padding-bottom: 10px;
-	border-bottom: 1px solid #eee;
-}
-
-#trust_cert_preview .cert-block:last-child {
-	margin-bottom: 0;
-	padding-bottom: 0;
-	border-bottom: none;
+	font-family:"Century Gothic", Helvetica, sans-serif;
+	font-size: 22px;
+	box-shadow: 0px 0px 3px var(--shadow-grey);
 }
 
 .buildbutton {
-	border: none;
-	outline: none;
-	border-radius: 10px;
-	color: #ffffff;
-	display: inline;
-	cursor:pointer;
-	margin: 0px auto;
-	clear: both;
-	padding: 7px 25px;
-	text-shadow: 0 1px 1px #777;
-	font-weight: bold;
-	font-family:"Century Gothic", Helvetica, sans-serif;
-	font-size: 22px;
-	box-shadow: 0px 0px 3px #aaa;
 	background: #4797ED;
 }
 
-.buildbutton:hover {
-	background: #d8d8d8;
-	color: #666;
-	text-shadow: 1px 1px 1px #fff;
-}
-
 .savebutton {
-	border: none;
-	outline: none;
-	border-radius: 10px;
-	color: #ffffff;
-	display: inline;
-	cursor:pointer;
-	margin: 0px auto;
-	clear: both;
-	padding: 7px 25px;
-	text-shadow: 0 1px 1px #777;
-	font-weight: bold;
-	font-family:"Century Gothic", Helvetica, sans-serif;
-	font-size: 22px;
-	box-shadow: 0px 0px 3px #aaa;
 	background: #16A70C;
 }
 
-.savebutton:hover {
+.buildbutton:hover, .savebutton:hover {
 	background: #d8d8d8;
 	color: #666;
 	text-shadow: 1px 1px 1px #fff;
