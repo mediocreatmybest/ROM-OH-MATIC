@@ -29,6 +29,36 @@
 # unfinished Python port of it) silently dropped every option that used
 # the preceding-comment style -- which is how crypto.h and branding.h
 # ended up completely invisible in the advanced options UI.
+#
+# The same option name can legitimately appear more than once in one
+# header, in two distinct ways, and emitting an entry for each occurrence
+# produced duplicate options in the UI -- two checkboxes sharing one DOM
+# id, showing contradictory defaults, with no deterministic answer to
+# "which one does a saved config (or a preset) refer to":
+#
+#   1. A platform-guarded redefinition. Headers declare a general default
+#      at the top level and then adjust it inside a conditional block --
+#      e.g. console.h defines CONSOLE_FRAMEBUFFER, then #undefs it under
+#      "#if defined ( PLATFORM_pcbios )". The top-level declaration is the
+#      general default, so that is the one kept.
+#
+#   2. A commented-out alternative value. dhcp.h carries
+#      "#define DHCP_DISC_START_TIMEOUT_SEC 1" immediately followed by
+#      "//#define DHCP_DISC_START_TIMEOUT_SEC 4 /* as per PXE spec */" --
+#      documentation of another value to use, not a second option. The
+#      active line wins; without that, the inactive spec value shadowed
+#      the real default both in the UI and in known_int_values.
+#
+# Note the limitation this does NOT solve: which platform-guarded branch
+# actually applies depends on the build target, and this runs once for
+# every target. An option whose default differs per platform is therefore
+# shown at its general (top-level) default even when building for a
+# platform that overrides it. The value submitted for such an option is
+# still correct -- build.fcgi writes overrides into config/local/*.h,
+# which the headers include last -- but the *displayed* default can be
+# wrong for BIOS builds specifically. Making that exact would mean
+# parsing per-platform and teaching options.php to cache one list per
+# target.
 
 import argparse
 import ast
@@ -40,6 +70,14 @@ import re
 DIRECTIVE_RE = re.compile(
     r'^(?P<commented>//)?#(?P<directive>define|undef)\s+(?P<name>\w+)(?P<rest>.*)$'
 )
+
+# Preprocessor conditionals. "ifndef"/"ifdef"/"elif" must precede "if" in
+# the alternation, otherwise "if" matches their leading substring first.
+CONDITIONAL_RE = re.compile(
+    r'^#\s*(?P<kind>ifndef|ifdef|elif|else|endif|if)\b'
+)
+
+_INCLUDE_GUARD_RE = re.compile(r'^#\s*ifndef\s+(?P<name>\w+)\s*$')
 
 # A handful of value-bearing options (e.g. general.h's
 # `ROM_BANNER_TIMEOUT ( 2 * BANNER_TIMEOUT )`, crypto.h's
@@ -148,15 +186,34 @@ _INT_LITERAL_RE = re.compile(r'^-?[0-9]+$')
 _HEX_LITERAL_RE = re.compile(r'^0[xX][0-9a-fA-F]+$')
 
 
-def parse_file(path, filename, known_int_values=None):
-    if known_int_values is None:
-        known_int_values = {}
+def is_include_guard(lines, index):
+    """True if lines[index] is the `#ifndef NAME` of a standard include
+    guard -- i.e. the next non-blank line is `#define NAME`. That guard
+    wraps the entire file, so counting it as a conditional block would
+    leave nothing at top level for dedupe_records() to prefer."""
+    match = _INCLUDE_GUARD_RE.match(lines[index].strip())
+    if not match:
+        return False
+    guard = match.group('name')
+    j = index + 1
+    while j < len(lines) and not lines[j].strip():
+        j += 1
+    if j >= len(lines):
+        return False
+    return re.match(r'^#\s*define\s+' + re.escape(guard) + r'\s*$',
+                    lines[j].strip()) is not None
 
-    with open(path, encoding='utf-8', errors='replace') as f:
-        lines = f.read().splitlines()
 
-    entries = []
+def scan_directives(lines):
+    """Walk a header and return one raw record per #define/#undef, in file
+    order, each tagged with the conditional-block depth it sits at (0 =
+    top level) and whether it was commented out. Values are left as
+    written; dedupe and evaluation happen afterwards."""
+    records = []
     pending_comment = ''
+    # One entry per open conditional; True marks the file's include guard,
+    # which is not a real conditional for our purposes.
+    guard_stack = []
     i = 0
     n = len(lines)
 
@@ -171,11 +228,27 @@ def parse_file(path, filename, known_int_values=None):
             pending_comment, i = consume_comment(lines, i)
             continue
 
+        conditional = CONDITIONAL_RE.match(line)
+        if conditional:
+            kind = conditional.group('kind')
+            if kind in ('if', 'ifdef', 'ifndef'):
+                guard_stack.append(
+                    is_include_guard(lines, i) if kind == 'ifndef' else False
+                )
+            elif kind == 'endif' and guard_stack:
+                guard_stack.pop()
+            # #else/#elif keep the same depth, but like any other
+            # non-directive line they break a preceding comment's
+            # association with whatever follows.
+            pending_comment = ''
+            i += 1
+            continue
+
         match = DIRECTIVE_RE.match(line)
         if not match:
-            # Anything else (an #include, an #ifndef guard, code) breaks
-            # the association between a preceding comment and whatever
-            # directive comes after it.
+            # Anything else (an #include, code) breaks the association
+            # between a preceding comment and whatever directive comes
+            # after it.
             pending_comment = ''
             i += 1
             continue
@@ -224,6 +297,74 @@ def parse_file(path, filename, known_int_values=None):
         description = trailing_comment or pending_comment or name
         if trailing_comment:
             pending_comment = ''
+
+        records.append({
+            'name': name,
+            'directive': directive,
+            'commented': commented_out,
+            'value': value,
+            'description': description,
+            'depth': sum(1 for is_guard in guard_stack if not is_guard),
+        })
+
+    return records
+
+
+def dedupe_records(records):
+    """Collapse repeated definitions of the same option to one record.
+
+    A top-level definition beats one inside a conditional block (the
+    former is the general default, the latter a platform-specific
+    adjustment). Among top-level definitions an active line beats a
+    commented-out alternative, and the last active one wins, matching a
+    linear read of the file. When every occurrence is guarded there is no
+    general default to prefer, so the first -- the option's primary
+    declaration -- is used.
+
+    Each option keeps the position of its first occurrence, so the
+    section ordering the UI relies on is unchanged."""
+    order = []
+    groups = {}
+    for record in records:
+        if record['name'] not in groups:
+            order.append(record['name'])
+            groups[record['name']] = []
+        groups[record['name']].append(record)
+
+    chosen = []
+    for name in order:
+        group = groups[name]
+        if len(group) == 1:
+            chosen.append(group[0])
+            continue
+        top_level = [r for r in group if r['depth'] == 0]
+        if top_level:
+            active = [r for r in top_level if not r['commented']]
+            chosen.append((active or top_level)[-1])
+        else:
+            chosen.append(group[0])
+    return chosen
+
+
+def parse_file(path, filename, known_int_values=None):
+    if known_int_values is None:
+        known_int_values = {}
+
+    with open(path, encoding='utf-8', errors='replace') as f:
+        lines = f.read().splitlines()
+
+    entries = []
+
+    # Evaluate values only after dedupe: a commented-out alternative
+    # (dhcp.h's "//#define DHCP_DISC_START_TIMEOUT_SEC 4") would otherwise
+    # overwrite the active value in known_int_values purely by being
+    # parsed later, corrupting any expression that references it.
+    for record in dedupe_records(scan_directives(lines)):
+        name = record['name']
+        value = record['value']
+        description = record['description']
+        commented_out = record['commented']
+        directive = record['directive']
 
         if value:
             was_quoted = len(value) >= 2 and value[0] == '"' and value[-1] == '"'

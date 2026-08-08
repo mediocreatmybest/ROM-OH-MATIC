@@ -10,7 +10,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 
 from parseheaders import (  # noqa: E402
     eval_c_int_expression,
+    is_include_guard,
     parse_file,
+    scan_directives,
     strip_comment_markers,
 )
 
@@ -199,6 +201,146 @@ class ParseFileTests(unittest.TestCase):
         path = self._write('general.h', content)
         entries = parse_file(path, 'general.h')
         self.assertEqual(entries[0]['description'], 'FOO')
+
+
+class ConditionalDepthTests(unittest.TestCase):
+    """Directives are tagged with the conditional-block depth they sit at,
+    ignoring the file's own include guard."""
+
+    def test_include_guard_recognised(self):
+        lines = ['#ifndef CONFIG_FOO_H', '#define CONFIG_FOO_H', '#define BAR']
+        self.assertTrue(is_include_guard(lines, 0))
+
+    def test_include_guard_recognised_across_blank_line(self):
+        lines = ['#ifndef CONFIG_FOO_H', '', '#define CONFIG_FOO_H']
+        self.assertTrue(is_include_guard(lines, 0))
+
+    def test_plain_ifndef_is_not_an_include_guard(self):
+        lines = ['#ifndef SOMETHING', '#define OTHER_NAME']
+        self.assertFalse(is_include_guard(lines, 0))
+
+    def test_include_guard_does_not_count_as_depth(self):
+        lines = ['#ifndef CONFIG_FOO_H', '#define CONFIG_FOO_H',
+                 '#define BAR', '#endif']
+        records = scan_directives(lines)
+        self.assertEqual([r['name'] for r in records], ['BAR'])
+        self.assertEqual(records[0]['depth'], 0)
+
+    def test_conditional_block_increases_depth(self):
+        lines = ['#define TOP', '#if defined ( PLATFORM_pcbios )',
+                 '#define INNER', '#endif', '#define AFTER']
+        depths = {r['name']: r['depth'] for r in scan_directives(lines)}
+        self.assertEqual(depths, {'TOP': 0, 'INNER': 1, 'AFTER': 0})
+
+    def test_nested_conditionals(self):
+        lines = ['#if defined ( A )', '#if defined ( B )', '#define DEEP',
+                 '#endif', '#endif']
+        self.assertEqual(scan_directives(lines)[0]['depth'], 2)
+
+    def test_else_keeps_same_depth(self):
+        lines = ['#if defined ( A )', '#define ONE', '#else',
+                 '#define TWO', '#endif']
+        depths = {r['name']: r['depth'] for r in scan_directives(lines)}
+        self.assertEqual(depths, {'ONE': 1, 'TWO': 1})
+
+    def test_ifdef_counts_as_conditional(self):
+        lines = ['#ifdef SOMETHING', '#define INNER', '#endif']
+        self.assertEqual(scan_directives(lines)[0]['depth'], 1)
+
+
+class DedupeTests(unittest.TestCase):
+    """The same option name can appear more than once in one header; only
+    one entry should reach the UI."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+
+    def _parse(self, name, content, known=None):
+        path = os.path.join(self._tmpdir.name, name)
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return parse_file(path, name, known)
+
+    def test_top_level_beats_platform_guarded_undef(self):
+        # console.h's real shape: a general default, then a pcbios block
+        # that turns it off again.
+        content = (
+            '#define CONSOLE_FRAMEBUFFER\n'
+            '#if defined ( PLATFORM_pcbios )\n'
+            '#undef CONSOLE_FRAMEBUFFER\n'
+            '#endif\n'
+        )
+        entries = self._parse('console.h', content)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]['type'], 'define')
+
+    def test_all_guarded_uses_first_occurrence(self):
+        # CONSOLE_SERIAL: off inside one guard, on inside a narrower one.
+        content = (
+            '#if ! defined ( SERIAL_NULL )\n'
+            '//#define CONSOLE_SERIAL\n'
+            '#endif\n'
+            '#if defined ( CONSOLE_SBI )\n'
+            '#define CONSOLE_SERIAL\n'
+            '#endif\n'
+        )
+        entries = self._parse('console.h', content)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]['type'], 'undef')
+
+    def test_active_value_beats_commented_alternative(self):
+        # dhcp.h documents an alternative value on a commented-out line.
+        content = (
+            '#define DHCP_DISC_START_TIMEOUT_SEC\t1\n'
+            '//#define DHCP_DISC_START_TIMEOUT_SEC\t4\t/* as per PXE spec */\n'
+        )
+        entries = self._parse('dhcp.h', content)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]['value'], '1')
+
+    def test_commented_alternative_does_not_poison_known_values(self):
+        content = (
+            '#define TIMEOUT\t1\n'
+            '//#define TIMEOUT\t4\t/* as per PXE spec */\n'
+        )
+        known = {}
+        self._parse('dhcp.h', content, known)
+        self.assertEqual(known['TIMEOUT'], 1)
+
+    def test_lone_commented_value_is_still_offered(self):
+        # No active counterpart: keep it, so the option stays settable.
+        content = '//#define OPTIONAL_THING\t42\n'
+        entries = self._parse('general.h', content)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]['value'], '42')
+
+    def test_last_top_level_definition_wins(self):
+        content = '#define THING\t1\n#define THING\t2\n'
+        entries = self._parse('general.h', content)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]['value'], '2')
+
+    def test_deduped_option_keeps_first_occurrence_position(self):
+        # The UI inserts section headings by walking entries in order, so
+        # collapsing a later duplicate must not move the option.
+        content = (
+            '#define ALPHA\n'
+            '#define BETA\n'
+            '#if defined ( PLATFORM_pcbios )\n'
+            '#undef ALPHA\n'
+            '#endif\n'
+            '#define GAMMA\n'
+        )
+        entries = self._parse('general.h', content)
+        self.assertEqual([e['name'] for e in entries], ['ALPHA', 'BETA', 'GAMMA'])
+
+    def test_distinct_options_are_untouched(self):
+        content = '#define ONE\n#undef TWO\n//#define THREE\n'
+        entries = self._parse('general.h', content)
+        self.assertEqual([e['name'] for e in entries], ['ONE', 'TWO', 'THREE'])
+        self.assertEqual([e['type'] for e in entries],
+                         ['define', 'undef', 'undef'])
 
 
 if __name__ == '__main__':
