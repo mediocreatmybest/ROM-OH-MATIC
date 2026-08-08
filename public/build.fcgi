@@ -172,8 +172,22 @@ sub load_cached_binaries {
   my $tarball = catfile ( $cacheroot, $cached."-".$bindir.".tar".$suffix );
   warn "Opening binary tarball ".$tarball."...\n" if $verbosity > 1;
   my $tarfh;
-  open $tarfh, "<", $tarball
-      or die "Could not open ".$tarball.": $!\n";
+  if ( ! open $tarfh, "<", $tarball ) {
+    # A tag naming a tarball that is no longer there is a cache miss,
+    # not a failure: the cache only exists to save time, so its absence
+    # must never fail a build the way dying here did. Dying also
+    # produced Apache's own generic 500 page rather than any message
+    # from this script, since it happens before any header is sent,
+    # which made the cause invisible from the response alone.
+    #
+    # The window is real rather than theoretical: start_gzip()'s
+    # background child deletes exactly this tag and tarball once it has
+    # finished compressing, and can do so between the git describe above
+    # and this open.
+    warn "Could not open ".$tarball.": ".$!." - treating as cache miss\n";
+    cache_unlock();
+    return;
+  }
   warn "Opened binary tarball ".$tarball."...\n" if $verbosity > 1;
 
   # Update tarball's timestamp if it is an exact match
@@ -343,6 +357,26 @@ sub start_gzip {
     close $tarfh;
     return;
   }
+
+  # Re-open the lockfile so this child has its own open file
+  # description.
+  #
+  # flock() locks belong to the open file description, not to the
+  # process, and fork() leaves parent and child sharing one. This fork
+  # happens while the caller holds the cache lock, so without this the
+  # child inherits that lock: its cache_lock() below would return
+  # immediately even while a request being served by the parent holds
+  # the lock, and either side's cache_unlock() would drop it for both.
+  # The tag and tarball deletion at the end of this function would then
+  # be free to run while a concurrent request sits between finding a
+  # cache tag and opening the tarball that tag names.
+  #
+  # Closing the inherited descriptor here does not disturb the parent's
+  # lock: the open file description survives while the parent still
+  # refers to it.
+  close $lockfh;
+  open $lockfh, "+>>", $lockfile
+      or die "Could not reopen lockfile: $!\n";
 
   # Open temporary file
   my $gzfh = File::Temp->new ( TEMPLATE => "ipxe-gzip-XXXXXX",
