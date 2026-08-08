@@ -75,11 +75,16 @@ function validate_preset($data, $typed, $filename)
 		}
 	}
 
+	/* A malformed entry rejects the whole file rather than being dropped
+	 * on its own. Skipping individual entries turned a preset that looks
+	 * known-good in the dropdown into a quietly partial configuration --
+	 * the difference only visible in the web server's error log, which
+	 * nobody reads before building a boot binary. Failing the file makes
+	 * the mistake obvious while leaving every other preset working. */
 	$options = array();
 	foreach ($data['options'] as $key => $value) {
 		if (!is_string($key) || !preg_match('/^\w+\.h\/\w+$/', $key)) {
-			error_log("presets.php: $filename: skipping malformed option key \"$key\"");
-			continue;
+			return "malformed option key \"$key\"";
 		}
 		if (is_bool($value)) {
 			$options[$key] = $value ? 1 : 0;
@@ -89,15 +94,13 @@ function validate_preset($data, $typed, $filename)
 			 * off rather than reported -- the silent-mistake behaviour
 			 * the rest of this validation exists to avoid. */
 			if ($value !== 0 && $value !== 1) {
-				error_log("presets.php: $filename: option \"$key\" must be 0 or 1, ignoring");
-				continue;
+				return "option \"$key\" must be 0 or 1";
 			}
 			$options[$key] = $value;
 		} elseif (is_string($value)) {
 			$options[$key] = $value;
 		} else {
-			error_log("presets.php: $filename: skipping option \"$key\" with unsupported value type");
-			continue;
+			return "option \"$key\" has an unsupported value type";
 		}
 	}
 	/* Encode as an object even when empty -- an empty PHP array would

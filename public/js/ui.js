@@ -516,6 +516,7 @@ onReady(function() {
 
                         var byName = optionInputsByName();
                         var unknown = [];
+                        var badValues = [];
                         var applied = 0;
                         Object.keys(preset.options).forEach(function(key) {
                                 var input = byName[key];
@@ -531,6 +532,18 @@ onReady(function() {
                                 }
                                 var value = preset.options[key];
                                 if (input.type === 'checkbox') {
+                                        /* presets.php has to allow strings, because
+                                         * value options need them, so a string can
+                                         * still reach a checkbox here. Anything
+                                         * outside the boolean domain would otherwise
+                                         * read as false and quietly turn the option
+                                         * off -- "true" and "2" being the easy
+                                         * mistakes to make by hand. Report instead. */
+                                        if (value !== 0 && value !== 1 && value !== '0' &&
+                                            value !== '1' && value !== true && value !== false) {
+                                                badValues.push(key);
+                                                return;
+                                        }
                                         input.checked = (value === 1 || value === '1' || value === true);
                                 } else {
                                         input.value = String(value);
@@ -590,8 +603,14 @@ onReady(function() {
                                         ? '1 option in this preset does not exist in the iPXE revision loaded here and was skipped: ' + unknown[0]
                                         : unknown.length + ' options in this preset do not exist in the iPXE revision loaded here and were skipped: ' + unknown.join(', '));
                         }
+                        if (badValues.length > 0) {
+                                notes.push(badValues.length + ' on/off option' + (badValues.length === 1 ? '' : 's') +
+                                        ' in this preset had a value that is neither 0 nor 1 and ' +
+                                        (badValues.length === 1 ? 'was' : 'were') + ' left at the default: ' +
+                                        badValues.join(', '));
+                        }
                         setPresetStatus(notes.length > 0 ? summary + ' ' + notes.join('. ') + '.' : summary,
-                                        unknown.length > 0 || notes.length > 0);
+                                        notes.length > 0);
                 } finally {
                         applyingPreset = false;
                 }
@@ -1488,12 +1507,32 @@ onReady(function() {
                         previewEl.style.display = '';
                 }
 
+                /* Incremented for every validation started, and for anything
+                 * that invalidates one (a new certificate, or leaving custom
+                 * trust). A response only counts if its generation is still
+                 * the current one.
+                 *
+                 * Without this, two validations in flight together can land
+                 * in either order, so an earlier certificate could overwrite
+                 * a later one -- or a response arriving after the user
+                 * switched back to standard trust could put trustCertPem
+                 * back, leaving a certificate that is no longer on screen
+                 * baked into the next build. */
+                var validationGeneration = 0;
+
+                function invalidatePendingValidation() {
+                        validationGeneration += 1;
+                }
+
                 function validate(formData) {
+                        invalidatePendingValidation();
+                        var generation = validationGeneration;
                         setStatus('Validating certificate...', false);
                         clearPreview();
                         fetch('certificate.php', { method: 'POST', body: formData })
                                 .then(function(response) { return response.json(); })
                                 .then(function(data) {
+                                        if (generation !== validationGeneration) { return; }
                                         if (data.error) {
                                                 setStatus(data.error, true);
                                                 return;
@@ -1506,6 +1545,7 @@ onReady(function() {
                                                 'Certificate validated.', expired);
                                 })
                                 .catch(function(err) {
+                                        if (generation !== validationGeneration) { return; }
                                         setStatus('Could not validate certificate: ' + err.message, true);
                                 });
                 }
@@ -1540,6 +1580,10 @@ onReady(function() {
                                         textInput.value = '';
                                         clearPreview();
                                         setStatus(null);
+                                        /* A validation already in flight must not be
+                                         * allowed to land and restore the certificate
+                                         * that was just cleared. */
+                                        invalidatePendingValidation();
                                 }
                         });
                 });

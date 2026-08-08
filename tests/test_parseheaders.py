@@ -49,6 +49,13 @@ class EvalCIntExpressionTests(unittest.TestCase):
     def test_unsupported_operator_returns_none(self):
         self.assertIsNone(eval_c_int_expression('2 ** 3', {}))
 
+    def test_non_integer_known_value_returns_none(self):
+        # known_values is caller-supplied; a non-integer in it must not
+        # escape as a TypeError, since the contract is to return None
+        # rather than guess.
+        self.assertIsNone(eval_c_int_expression('A / B', {'A': 'str', 'B': 2}))
+        self.assertIsNone(eval_c_int_expression('A + B', {'A': 'str', 'B': 2}))
+
     def test_syntax_error_returns_none(self):
         self.assertIsNone(eval_c_int_expression('2 *', {}))
 
@@ -172,6 +179,20 @@ class ParseFileTests(unittest.TestCase):
         entries = parse_file(path, 'general.h')
         self.assertEqual([(e['name'], e['type']) for e in entries],
                          [('SPACED', 'define'), ('TABBED', 'undef')])
+
+    def test_include_guard_with_comment_between_halves(self):
+        # A comment sitting inside the guard must not hide it: if the guard
+        # goes unrecognised the whole file counts as one conditional, every
+        # option sits at depth 1 or deeper, and dedupe_records() can never
+        # prefer a top-level definition.
+        for comment in ('/* The include guard */', '// guard', '/* a\n   b */'):
+            content = ('#ifndef CONFIG_GENERAL_H\n' + comment +
+                       '\n#define CONFIG_GENERAL_H\n#define FOO\n#endif\n')
+            path = self._write('general.h', content)
+            entries = parse_file(path, 'general.h')
+            names = [e['name'] for e in entries]
+            self.assertNotIn('CONFIG_GENERAL_H', names, comment)
+            self.assertEqual(names, ['FOO'], comment)
 
     def test_include_guard_with_trailing_comment_is_skipped(self):
         content = ('#ifndef CONFIG_GENERAL_H /* guard */\n'
@@ -370,6 +391,18 @@ class DedupeTests(unittest.TestCase):
         entries = self._parse('general.h', content)
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]['value'], '42')
+
+    def test_commented_value_is_marked_as_not_set(self):
+        # The value on a commented-out line is a suggestion, not a setting,
+        # but the input box renders it exactly like an active one.
+        content = '//#define EARLY_UART_MODEL\t8250\t/* UART model */\n'
+        entries = self._parse('serial.h', content)
+        self.assertIn('not set by default', entries[0]['description'])
+
+    def test_active_value_is_not_marked(self):
+        content = '#define REAL_THING\t7\t/* something */\n'
+        entries = self._parse('general.h', content)
+        self.assertNotIn('not set by default', entries[0]['description'])
 
     def test_last_top_level_definition_wins(self):
         content = '#define THING\t1\n#define THING\t2\n'

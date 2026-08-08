@@ -142,7 +142,11 @@ def eval_c_int_expression(expr, known_values):
                 return None
             try:
                 result = _SAFE_BINOPS[type(n.op)](left, right)
-            except ZeroDivisionError:
+            except (ZeroDivisionError, TypeError):
+                # TypeError guards the caller-supplied known_values: this
+                # function's contract is to return None rather than ever
+                # guess, so a non-integer arriving there must not take the
+                # whole run down with it.
                 return None
             return int(result) if isinstance(result, float) and result.is_integer() else result
         if isinstance(n, ast.UnaryOp) and type(n.op) in _SAFE_UNARYOPS:
@@ -205,9 +209,26 @@ def is_include_guard(lines, index):
     if not match:
         return False
     guard = match.group('name')
+    # Skip blanks and whole-line comments: a guard commonly carries an
+    # explanatory comment between its two halves, and failing to see past
+    # that costs more than the guard itself. The file would be treated as
+    # one big conditional, putting every option at depth 1 or deeper, so
+    # dedupe_records() would never find a top-level definition to prefer
+    # and would silently resolve duplicates from the wrong branch.
     j = index + 1
-    while j < len(lines) and not lines[j].strip():
-        j += 1
+    while j < len(lines):
+        stripped = lines[j].strip()
+        if not stripped:
+            j += 1
+        elif stripped.startswith('/*') or stripped.startswith('//'):
+            # Step over the comment, however many lines it spans.
+            while j < len(lines) and '*/' not in lines[j]:
+                if lines[j].strip().startswith('//'):
+                    break
+                j += 1
+            j += 1
+        else:
+            break
     if j >= len(lines):
         return False
     return re.match(r'^#\s*define\s+' + re.escape(guard) + r'\s*(?:/\*.*)?$',
@@ -430,6 +451,21 @@ def parse_file(path, filename, known_int_values=None):
                         description = (description + ' (computed from: ' + final_value + ')').strip()
                         final_value = str(computed)
                         known_int_values[name] = computed
+
+            if commented_out:
+                # A commented-out value macro (serial.h's EARLY_UART_MODEL,
+                # EARLY_UART_REG_BASE and EARLY_UART_REG_SHIFT are the ones
+                # that exist today) is not set at all upstream -- the value
+                # shown is the suggestion sitting on the disabled line. The
+                # box renders it exactly like an active setting, so say
+                # otherwise here; leaving it untouched submits nothing and
+                # the macro stays undefined, which is correct but reads as
+                # though the value were already in force. Properly this
+                # wants its own control, an enable checkbox beside the
+                # value, rather than a note.
+                description = (description + ' (not set by default -- this is the '
+                               'suggested value on a commented-out line; edit it to '
+                               'enable the option)').strip()
 
             entries.append({
                 'file': filename,
