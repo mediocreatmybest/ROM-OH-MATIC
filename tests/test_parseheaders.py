@@ -163,6 +163,13 @@ class ParseFileTests(unittest.TestCase):
         self.assertNotIn('CONFIG_GENERAL_H', names)
         self.assertEqual(names, ['FOO'])
 
+    def test_include_guard_with_blank_line_is_skipped(self):
+        content = '#ifndef CONFIG_GENERAL_H\n\n#define CONFIG_GENERAL_H\n#define FOO\n#endif\n'
+        path = self._write('general.h', content)
+        names = [e['name'] for e in parse_file(path, 'general.h')]
+        self.assertNotIn('CONFIG_GENERAL_H', names)
+        self.assertEqual(names, ['FOO'])
+
     def test_function_like_macro_is_skipped(self):
         content = '#define NAMED_CONFIG(_header) <config/CONFIG/_header>\n'
         path = self._write('named.h', content)
@@ -225,6 +232,21 @@ class ConditionalDepthTests(unittest.TestCase):
         records = scan_directives(lines)
         self.assertEqual([r['name'] for r in records], ['BAR'])
         self.assertEqual(records[0]['depth'], 0)
+
+    def test_include_guard_define_skipped_across_blank_line(self):
+        # The guard test tolerates a blank line before the #define, so the
+        # skip has to as well -- otherwise the guard symbol itself is
+        # reported as a build option.
+        lines = ['#ifndef CONFIG_FOO_H', '', '#define CONFIG_FOO_H',
+                 '#define BAR', '#endif']
+        self.assertEqual([r['name'] for r in scan_directives(lines)], ['BAR'])
+
+    def test_define_matching_a_non_guard_ifndef_is_kept(self):
+        # "#ifndef SOMETHING" followed by a define of a DIFFERENT name is
+        # ordinary conditional code, and that define is a real option.
+        lines = ['#ifndef SOMETHING', '#define OTHER_NAME', '#endif']
+        self.assertEqual([r['name'] for r in scan_directives(lines)],
+                         ['OTHER_NAME'])
 
     def test_conditional_block_increases_depth(self):
         lines = ['#define TOP', '#if defined ( PLATFORM_pcbios )',

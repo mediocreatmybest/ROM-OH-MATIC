@@ -214,6 +214,9 @@ def scan_directives(lines):
     # One entry per open conditional; True marks the file's include guard,
     # which is not a real conditional for our purposes.
     guard_stack = []
+    # Name of an include guard whose matching "#define NAME" has not been
+    # consumed yet, so it can be skipped rather than reported as an option.
+    pending_guard_define = None
     i = 0
     n = len(lines)
 
@@ -232,9 +235,17 @@ def scan_directives(lines):
         if conditional:
             kind = conditional.group('kind')
             if kind in ('if', 'ifdef', 'ifndef'):
-                guard_stack.append(
-                    is_include_guard(lines, i) if kind == 'ifndef' else False
-                )
+                guard = is_include_guard(lines, i) if kind == 'ifndef' else False
+                guard_stack.append(guard)
+                if guard:
+                    # Remember the name so the guard's own "#define NAME"
+                    # is skipped below. Recorded here, from the same
+                    # detection that decided this is a guard, rather than
+                    # re-testing the previous line down there: the two
+                    # tests disagreed about a blank line between the
+                    # "#ifndef" and the "#define", which let the guard
+                    # symbol through as though it were an option.
+                    pending_guard_define = _INCLUDE_GUARD_RE.match(line).group('name')
             elif kind == 'endif' and guard_stack:
                 guard_stack.pop()
             # #else/#elif keep the same depth, but like any other
@@ -257,13 +268,17 @@ def scan_directives(lines):
         directive = match.group('directive')
         name = match.group('name')
 
-        # Skip standard C header include-guards: `#ifndef NAME` immediately
-        # followed by `#define NAME` is boilerplate, not a real option.
-        if (directive == 'define' and not commented_out and i > 0
-                and lines[i - 1].strip() == '#ifndef ' + name):
+        # Skip standard C header include-guards: the `#define NAME` that
+        # pairs with the `#ifndef NAME` opening the file is boilerplate,
+        # not a real option.
+        if (directive == 'define' and not commented_out
+                and name == pending_guard_define):
+            pending_guard_define = None
             pending_comment = ''
             i += 1
             continue
+        # Any other directive means the guard's define is not coming.
+        pending_guard_define = None
 
         # Skip function-like macros: `#define NAME(param) ...`, with no
         # space before the `(` (a space there would make it an ordinary

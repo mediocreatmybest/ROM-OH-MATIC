@@ -163,6 +163,8 @@ onReady(function() {
                         revisionOptions.appendChild(makeOption(data[i], data[i]));
                 }
                 document.getElementById('gitrevision').replaceChildren(revisionOptions);
+                revisionsReady = true;
+                refreshPresetAvailability();
         })
 
         fetchJSON("nics.php", function(data) {
@@ -362,6 +364,15 @@ onReady(function() {
         var presets = [];
         var optionsReady = false;
         var presetsReady = false;
+        var revisionsReady = false;
+        /* The output format, revision and embedded script as they stood
+         * before any preset was applied. Presets set these only when they
+         * carry the corresponding field, so without a baseline to return
+         * to, switching from a preset that sets one to a preset that
+         * doesn't would leave the first preset's value in place and the
+         * form would no longer describe either. Captured once, lazily, so
+         * anything the user had already entered is what gets restored. */
+        var presetBaseline = null;
         /* Set while applyPreset() is writing to the form, so the drift
          * listener below can tell our own writes from a user edit. */
         var applyingPreset = false;
@@ -386,7 +397,11 @@ onReady(function() {
                         return;
                 }
                 presetSection.style.display = '';
-                presetSelect.disabled = !optionsReady;
+                /* Revisions count as well as options: a preset naming a
+                 * revision would be reported as asking for one this build
+                 * doesn't offer if it were applied before gitversion.php
+                 * had filled the list in, and nothing retries afterwards. */
+                presetSelect.disabled = !(optionsReady && revisionsReady);
         }
 
         function setPresetStatus(text, isError) {
@@ -436,6 +451,34 @@ onReady(function() {
                 });
         }
 
+        /* Remember, once, the preset-controlled fields as the user left
+         * them before any preset touched them. */
+        function capturePresetBaseline() {
+                if (presetBaseline) { return; }
+                presetBaseline = {
+                        outputformat: document.getElementById('outputformatadv').value,
+                        revision: document.getElementById('gitrevision').value,
+                        embed: document.getElementById('embed').value
+                };
+        }
+
+        /* Put those fields back, so each preset is applied to the same
+         * starting point rather than on top of the previous one. */
+        function restorePresetBaseline() {
+                if (!presetBaseline) { return; }
+                var outputSelect = document.getElementById('outputformatadv');
+                if (outputSelect.value !== presetBaseline.outputformat) {
+                        outputSelect.value = presetBaseline.outputformat;
+                        outputSelect.dispatchEvent(new Event('change'));
+                }
+                var revisionSelect = document.getElementById('gitrevision');
+                if (revisionSelect.value !== presetBaseline.revision) {
+                        revisionSelect.value = presetBaseline.revision;
+                        revisionSelect.dispatchEvent(new Event('change'));
+                }
+                document.getElementById('embed').value = presetBaseline.embed;
+        }
+
         /* Look inputs up by name through a map built from the DOM, rather
          * than composing a selector out of preset-supplied text. */
         function optionInputsByName() {
@@ -455,6 +498,8 @@ onReady(function() {
         function applyPreset(preset) {
                 applyingPreset = true;
                 try {
+                        capturePresetBaseline();
+                        restorePresetBaseline();
                         resetOptionsToDefaults();
 
                         var byName = optionInputsByName();
@@ -570,6 +615,7 @@ onReady(function() {
                         if (value === PRESET_NONE) {
                                 applyingPreset = true;
                                 try {
+                                        restorePresetBaseline();
                                         resetOptionsToDefaults();
                                 } finally {
                                         applyingPreset = false;
@@ -1197,8 +1243,11 @@ onReady(function() {
                                 link.download = filename;
                                 document.body.appendChild(link);
                                 link.click();
-                                document.body.removeChild(link);
-                                URL.revokeObjectURL(url);
+                                link.remove();
+                                /* Deferred, as with the build download above:
+                                 * revoking straight away can invalidate the URL
+                                 * before some browsers have started reading it. */
+                                setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
                         });
 
                         popup.showModal();

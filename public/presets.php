@@ -57,8 +57,16 @@ function validate_preset($data, $filename)
 		}
 	}
 
+	/* Checked rather than cast: (bool) "false" is true in PHP, so a file
+	 * writing the value as a string would silently turn certificate mode
+	 * on. These files are untrusted input and the field is documented as
+	 * a boolean, so anything else is reported and ignored. */
 	if (isset($data['requires_trust_cert'])) {
-		$preset['requires_trust_cert'] = (bool) $data['requires_trust_cert'];
+		if (is_bool($data['requires_trust_cert'])) {
+			$preset['requires_trust_cert'] = $data['requires_trust_cert'];
+		} else {
+			error_log("presets.php: $filename: \"requires_trust_cert\" must be true or false, ignoring");
+		}
 	}
 
 	$options = array();
