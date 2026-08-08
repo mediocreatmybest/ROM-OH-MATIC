@@ -84,6 +84,14 @@ function validate_preset($data, $typed, $filename)
 		if (is_bool($value)) {
 			$options[$key] = $value ? 1 : 0;
 		} elseif (is_int($value)) {
+			/* Booleans are documented as 0 or 1. The client treats only
+			 * exactly 1 as on, so any other integer would be applied as
+			 * off rather than reported -- the silent-mistake behaviour
+			 * the rest of this validation exists to avoid. */
+			if ($value !== 0 && $value !== 1) {
+				error_log("presets.php: $filename: option \"$key\" must be 0 or 1, ignoring");
+				continue;
+			}
 			$options[$key] = $value;
 		} elseif (is_string($value)) {
 			$options[$key] = $value;

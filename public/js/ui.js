@@ -597,6 +597,14 @@ onReady(function() {
                 }
         }
 
+        /* The preset currently selected, or null for None/Custom. */
+        function activePreset() {
+                if (!presetSelect) { return null; }
+                var value = presetSelect.value;
+                if (value === PRESET_NONE || value === PRESET_CUSTOM) { return null; }
+                return presets[parseInt(value, 10)] || null;
+        }
+
         function markPresetCustom() {
                 if (!presetSelect || presetSelect.value === PRESET_CUSTOM) { return; }
                 if (presetSelect.value === PRESET_NONE) { return; }
@@ -685,6 +693,24 @@ onReady(function() {
                                 if (applyingPreset) { return; }
                                 markPresetCustom();
                         });
+                });
+        });
+
+        /* Trust mode, but only in one direction. A preset that declares
+         * requires_trust_cert has custom trust as part of what it asks for,
+         * so turning that back off means the form no longer matches it --
+         * and the resulting build would quietly lack the certificate the
+         * preset exists to carry. Turning custom trust *on* is not drift:
+         * supplying a certificate is per-site input a preset cannot carry,
+         * and a preset that does not ask for one has no opinion either way.
+         * The certificate inputs themselves are never watched. */
+        document.querySelectorAll('input[name=trustmode]').forEach(function(radio) {
+                radio.addEventListener('change', function() {
+                        if (applyingPreset) { return; }
+                        var preset = activePreset();
+                        if (!preset || !preset.requires_trust_cert) { return; }
+                        var mode = document.querySelector('input[name=trustmode]:checked');
+                        if (mode && mode.value !== 'custom') { markPresetCustom(); }
                 });
         });
 

@@ -67,6 +67,16 @@ applied silently. Option keys naming something absent from the iPXE
 revision being parsed are listed as skipped, so a preset written against
 an older revision says so instead of quietly applying a subset.
 
+That skipped-option check has a caveat worth knowing if you set
+`revision`. The option list comes from `options.php`, which parses the
+iPXE checkout inside the container -- it is not regenerated per revision,
+here or anywhere else in the wizard. Selecting a different revision
+changes what gets built but not the list of options offered, so for a
+revision far from the container's checkout the check can pass an option
+that no longer exists there, or flag one that does. Pinning a revision is
+still worth doing for reproducibility; just don't read the absence of
+warnings as proof the preset matches that revision.
+
 ## A note on defaults
 
 Options a preset sets are always sent to the build, even when they look
