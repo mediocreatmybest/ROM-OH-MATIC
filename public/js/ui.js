@@ -533,7 +533,17 @@ onReady(function() {
 
                         if (preset.outputformat) {
                                 var outputSelect = document.getElementById('outputformatadv');
-                                if (selectHasValue(outputSelect, preset.outputformat)) {
+                                /* The output list carries "-" and "--" as its
+                                 * placeholder and separator rows. They are real
+                                 * <option> values, so a preset naming one would
+                                 * otherwise be accepted and then leave
+                                 * buildcfgParams() splitting a string with no
+                                 * "/" in it -- an undefined binary, and a throw
+                                 * on the next indexOf(). Presets are untrusted
+                                 * input, so reject them here. */
+                                if (preset.outputformat === '-' || preset.outputformat === '--') {
+                                        notes.push('output format "' + preset.outputformat + '" is not a buildable format');
+                                } else if (selectHasValue(outputSelect, preset.outputformat)) {
                                         outputSelect.value = preset.outputformat;
                                         outputSelect.dispatchEvent(new Event('change'));
                                 } else {
@@ -644,6 +654,27 @@ onReady(function() {
                         });
                 });
         }
+
+        /* The output format, revision and embedded script are preset-controlled
+         * too, so editing one of those also means the form has stopped
+         * matching the chosen preset. The certificate is deliberately not in
+         * this list: it is per-site input a preset cannot carry, so supplying
+         * one is not a deviation from the preset.
+         *
+         * The two ways a script arrives without the user typing it -- the file
+         * picker and the drop zone -- assign to #embed directly, and assigning
+         * to .value fires no event, so those paths dispatch one explicitly
+         * (see the embedded-script handling further down). */
+        ['outputformatadv', 'gitrevision', 'embed'].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (!el) { return; }
+                ['change', 'input'].forEach(function(eventName) {
+                        el.addEventListener(eventName, function() {
+                                if (applyingPreset) { return; }
+                                markPresetCustom();
+                        });
+                });
+        });
 
         /* Reset from on reload */
         document.querySelector('input[name=wizardtype]').checked = true;
@@ -1202,9 +1233,26 @@ onReady(function() {
                                 });
                                 var preset = { name: nameInput.value.trim() || 'Unnamed preset' };
                                 if (descInput.value.trim()) { preset.description = descInput.value.trim(); }
-                                var outputformat = document.getElementById('outputformatadv').value;
+                                /* This button sits in the shared build section,
+                                 * so it is reachable from either wizard -- read
+                                 * whichever output select the active one is
+                                 * actually using, rather than always the
+                                 * advanced one, which a standard-wizard user
+                                 * has never touched. */
+                                var wizard = document.querySelector('input[name=wizardtype]:checked').value;
+                                var outputformat = document.getElementById(
+                                        wizard === 'standard' ? 'outputformatstd' : 'outputformatadv').value;
                                 if (outputformat && outputformat !== '-' && outputformat !== '--') {
                                         preset.outputformat = outputformat;
+                                }
+                                /* Record that a certificate is needed, while
+                                 * still never carrying the certificate itself:
+                                 * without this, reapplying the preset silently
+                                 * leaves standard trust selected and produces a
+                                 * build that trusts nothing extra. */
+                                var trustMode = document.querySelector('input[name=trustmode]:checked');
+                                if (trustMode && trustMode.value === 'custom') {
+                                        preset.requires_trust_cert = true;
                                 }
                                 var revision = params.get('REVISION');
                                 if (revision) { preset.revision = revision; }
@@ -1299,7 +1347,14 @@ onReady(function() {
                         var reader = new FileReader();
                         reader.onload = function(e) {
                                 var content = e.target.result;
-                                document.getElementById('embed').value = content;
+                                var embedField = document.getElementById('embed');
+                                embedField.value = content;
+                                /* Assigning to .value fires nothing, so tell
+                                 * the preset drift listener the script changed
+                                 * -- otherwise loading a script from a file or
+                                 * the drop zone leaves a preset still shown as
+                                 * applied while its script has been replaced. */
+                                embedField.dispatchEvent(new Event('input', { bubbles: true }));
                                 if (content.indexOf("#!ipxe") === -1) {
                                         showMessage(' Not a iPXE script ', true);
                                 }
