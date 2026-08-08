@@ -193,17 +193,6 @@ h3 span {
 	margin-bottom: 2px;
 }
 
-.preset-description {
-	font-size: 13px;
-	color: #555;
-	margin: 6px 0 0 0;
-	max-width: 600px;
-}
-
-.preset-description p {
-	margin: 0 0 4px 0;
-}
-
 .fetch-status {
 	font-size: 14px;
 	font-style: italic;
@@ -336,6 +325,18 @@ h3 span {
 .option-help-wrap:hover .option-description-popover,
 .option-help-wrap:focus-within .option-description-popover {
 	display: block;
+}
+
+/* Separate paragraphs inside a popover carrying more than one -- the
+ * preset icon shows a description, certificate guidance and provenance
+ * together, which run into each other as one wall of text otherwise. */
+.option-description-popover .popover-para {
+	display: block;
+	margin-bottom: 6px;
+}
+
+.option-description-popover .popover-para:last-child {
+	margin-bottom: 0;
 }
 
 #trust details {

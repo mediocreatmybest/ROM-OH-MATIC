@@ -42,6 +42,47 @@ onReady(function() {
                 return opt;
         }
 
+        /* A small "?" icon that reveals explanatory text in a popover on
+         * hover, click, or keyboard focus -- CSS-only (:hover /
+         * :focus-within in ui.css), no JS event handling needed, so
+         * hover/click/keyboard-Tab all work identically without three
+         * separate code paths. Shared by the per-option rows and the
+         * preset dropdown. `idBase` must already be a safe id fragment
+         * (for options that is file+"/"+NAME, both always valid
+         * C-identifier-like strings from iPXE's own headers, with "/"
+         * swapped out since it's an unusual id character to carry
+         * through, even though technically legal in an HTML id).
+         * `paragraphs` may be a string or an array of strings, each
+         * rendered as its own line. Returns null if there's nothing to
+         * show. */
+        function makeHelpIcon(idBase, paragraphs, label) {
+                var parts = (Array.isArray(paragraphs) ? paragraphs : [paragraphs])
+                        .filter(function(text) { return text; });
+                if (parts.length === 0) { return null; }
+                var id = 'opthelp-' + idBase.replace(/[^A-Za-z0-9_-]/g, '-');
+                var wrap = document.createElement('span');
+                wrap.className = 'option-help-wrap';
+                var button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'option-help';
+                button.textContent = '?';
+                button.setAttribute('aria-describedby', id);
+                button.setAttribute('aria-label', label || ('About ' + idBase));
+                var popover = document.createElement('span');
+                popover.className = 'option-description-popover';
+                popover.id = id;
+                popover.setAttribute('role', 'tooltip');
+                parts.forEach(function(text) {
+                        var line = document.createElement('span');
+                        line.className = 'popover-para';
+                        line.textContent = text;
+                        popover.appendChild(line);
+                });
+                wrap.appendChild(button);
+                wrap.appendChild(popover);
+                return wrap;
+        }
+
         /* Shared by the initial gitversion.php load and the #gitrevision
          * change handler below, so both build the header the same, safe
          * way. */
@@ -175,37 +216,6 @@ onReady(function() {
                 subtitle.CRYPTO = 'Crypto configuration:';
                 subtitle.TLS = 'TLS configuration:';
                 subtitle.OCSP = 'OCSP Configuration:'
-
-                /* A small "?" icon that reveals the option's description in
-                 * a popover on hover, click, or keyboard focus -- CSS-only
-                 * (:hover / :focus-within in ui.css), no JS event handling
-                 * needed, so hover/click/keyboard-Tab all work identically
-                 * without three separate code paths. `idBase` must already
-                 * be a safe id fragment (fieldName is file+"/"+NAME, both
-                 * always valid C-identifier-like strings from iPXE's own
-                 * headers, with "/" swapped out since it's an unusual id
-                 * character to carry through, even though technically legal
-                 * in an HTML id). Returns null if there's nothing to show. */
-                function makeHelpIcon(idBase, text) {
-                        if (!text) { return null; }
-                        var id = 'opthelp-' + idBase.replace(/[^A-Za-z0-9_-]/g, '-');
-                        var wrap = document.createElement('span');
-                        wrap.className = 'option-help-wrap';
-                        var button = document.createElement('button');
-                        button.type = 'button';
-                        button.className = 'option-help';
-                        button.textContent = '?';
-                        button.setAttribute('aria-describedby', id);
-                        button.setAttribute('aria-label', 'About ' + idBase);
-                        var popover = document.createElement('span');
-                        popover.className = 'option-description-popover';
-                        popover.id = id;
-                        popover.setAttribute('role', 'tooltip');
-                        popover.textContent = text;
-                        wrap.appendChild(button);
-                        wrap.appendChild(popover);
-                        return wrap;
-                }
 
                 /* <label class="option-row"> with the option name on its own
                  * line and the input + "?" icon directly below it, always in
@@ -358,7 +368,7 @@ onReady(function() {
 
         var presetSection = document.getElementById('preset');
         var presetSelect = document.getElementById('presetselect');
-        var presetDescription = document.getElementById('preset_description');
+        var presetHelp = document.getElementById('preset_help');
         var presetStatus = document.getElementById('preset_status');
 
         var PRESET_NONE = '';
@@ -392,27 +402,22 @@ onReady(function() {
                 presetStatus.classList.toggle('error', !!isError);
         }
 
+        /* The chosen preset's description, certificate guidance and
+         * provenance live behind the same "?" icon used by the individual
+         * options, rather than as a block under the dropdown -- it is
+         * reference material for the one preset you picked, not something
+         * that needs to occupy the form permanently. Cleared for
+         * "None"/"Custom", which have nothing to describe. */
         function setPresetDescription(preset) {
-                if (!presetDescription) { return; }
-                presetDescription.replaceChildren();
-                if (!preset) {
-                        presetDescription.style.display = 'none';
-                        return;
-                }
-                var parts = [];
-                if (preset.description) { parts.push(preset.description); }
-                if (preset.trust_note) { parts.push(preset.trust_note); }
-                if (preset.source) { parts.push('Source: ' + preset.source); }
-                if (parts.length === 0) {
-                        presetDescription.style.display = 'none';
-                        return;
-                }
-                parts.forEach(function(text) {
-                        var p = document.createElement('p');
-                        p.textContent = text;
-                        presetDescription.appendChild(p);
-                });
-                presetDescription.style.display = '';
+                if (!presetHelp) { return; }
+                presetHelp.replaceChildren();
+                if (!preset) { return; }
+                var icon = makeHelpIcon('preset-' + preset.name, [
+                        preset.description,
+                        preset.trust_note,
+                        preset.source ? 'Source: ' + preset.source : null
+                ], 'About the ' + preset.name + ' preset');
+                if (icon) { presetHelp.appendChild(icon); }
         }
 
         /* Every rendered option carries its own parsed default: a checkbox's
