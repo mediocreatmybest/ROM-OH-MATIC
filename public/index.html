@@ -150,7 +150,8 @@
 
 			<div id="trust" class="trust" style="display: none">
 				<div class="spacer">
-					<h2 class="wizard-header">HTTPS certificate trust:</h2>
+				<details class="section-fold" id="trust_fold">
+					<summary class="wizard-header"><h2>HTTPS certificate trust:</h2></summary>
 					<p>
 						By default, iPXE trusts the same certificate authorities most operating
 						systems do. If your PXE/HTTPS server uses a private certificate authority
@@ -205,12 +206,14 @@
 							</details>
 						</p>
 					</div>
+				</details>
 				</div>
 			</div>
 
 			<div id="secureboot" class="secureboot" style="display: none">
 				<div class="spacer">
-					<h2 class="wizard-header">Secure Boot signing &amp; verification:</h2>
+				<details class="section-fold" id="secureboot_fold">
+					<summary class="wizard-header"><h2>Secure Boot signing &amp; verification:</h2></summary>
 
 					<div class="notice">
 						<strong>Please note:</strong>
@@ -266,6 +269,7 @@
 					<br/>
 					<input type="button" id="verify_button" value="Verify" class="savebutton" />
 					<div id="verify_result" style="display: none"></div>
+				</details>
 				</div>
 			</div>
 			</div> <!-- End ADV form -->

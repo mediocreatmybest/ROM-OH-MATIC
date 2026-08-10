@@ -602,6 +602,9 @@ onReady(function() {
 
                         if (preset.requires_trust_cert) {
                                 document.getElementById('trust_custom').click();
+                                /* The preset has just asked for a certificate the
+                                 * user still has to supply, so show them where. */
+                                openFold('trust_fold');
                         }
 
                         var summary = 'Applied ' + applied + ' option' + (applied === 1 ? '' : 's') + ' from "' + preset.name + '".';
@@ -794,6 +797,16 @@ onReady(function() {
                 }
         });
 
+        /* Expand a collapsed section. The certificate sections start folded
+         * away, so anything that draws attention to something inside one --
+         * a validation error, or a preset switching trust mode on the user's
+         * behalf -- has to open it, or the message is written to an element
+         * the user cannot see and the form just appears to do nothing. */
+        function openFold(id) {
+                var fold = document.getElementById(id);
+                if (fold) { fold.open = true; }
+        }
+
         /* BIOS (bindir exactly "bin", not "bin-i386-efi"/"bin-x86_64-efi")
          * builds don't compile in HTTPS at all -- a long-standing iPXE
          * decision, not a bug -- so certificate trust has no effect there.
@@ -975,6 +988,7 @@ onReady(function() {
                                         trustStatus.textContent = 'Provide and validate a certificate before building, or switch back to standard trust.';
                                         trustStatus.style.display = '';
                                         trustStatus.classList.add('error');
+                                        openFold('trust_fold');
                                         return;
                                 }
                                 trustCertToSend = trustCertPem;
@@ -1142,7 +1156,13 @@ onReady(function() {
                 var formData = new FormData();
                 params.forEach(function(value, key) { formData.append(key, value); });
                 var signError = appendSignFields(formData);
-                if (signError) { showBuildError(signError); return; }
+                if (signError) {
+                        /* Reported in a modal, so it is seen either way -- but
+                         * the fields it names are in the folded section. */
+                        openFold('secureboot_fold');
+                        showBuildError(signError);
+                        return;
+                }
                 /* POST, not the previous GET navigation -- a custom trust
                  * certificate's PEM (up to 64 KiB) must never travel in a
                  * URL: query strings end up in browser history and in

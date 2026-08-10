@@ -361,15 +361,37 @@ h3 span {
 	margin-bottom: 0;
 }
 
-#trust details {
+/* The explanatory FAQ disclosures beside the certificate fields. Scoped to
+ * #trust_custom_fields rather than #trust so they don't also match the
+ * .section-fold wrapping the whole section -- as a descendant selector on
+ * #trust they would drop the entire section's text to 13px/#555. */
+#trust_custom_fields details {
 	font-size: 13px;
 	color: #555;
 	margin: 4px 0;
 }
 
-#trust summary {
+#trust_custom_fields summary {
 	cursor: pointer;
 	color: #333;
+}
+
+/* Whole-section disclosures: the certificate trust and Secure Boot
+ * sections are long, and only relevant to someone deliberately using
+ * them, so they start collapsed behind the native <details> triangle
+ * rather than pushing the rest of the form down the page.
+ *
+ * The heading stays a real <h2> inside the <summary> (the one case where
+ * the HTML spec allows heading content there), so collapsing these
+ * doesn't cost the page its document outline. It's set inline only so
+ * the disclosure marker shares its line instead of sitting above it. */
+details.section-fold > summary {
+	cursor: pointer;
+}
+
+details.section-fold > summary h2 {
+	display: inline;
+	margin: 0;
 }
 
 /* Shared by every certificate-upload widget's preview -- trust, sign,
