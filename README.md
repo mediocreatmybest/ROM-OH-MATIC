@@ -135,6 +135,16 @@ docker run --detach \
 
 Only reach for this on a network you already trust to be doing the interception (e.g. a corporate proxy you can't get a CA cert out of). It doesn't disable every TLS check in the image, just Git's.
 
+Certificate/key handling -- HTTPS certificate trust and Secure Boot signing/verification -- can be removed from a deployment entirely, for an operator who doesn't want that attack surface exposed at all. This isn't just a hidden UI section: `build.fcgi` and `verify.fcgi` both refuse the relevant fields outright, even posted directly, bypassing the page entirely.
+
+```bash
+docker run --detach \
+  --publish 8080:80 \
+  --name ipxe-buildweb \
+  --env UI_REMOVE_CERT_FEATURE=true \
+  mediocreatmybest/ipxe-buildweb:latest
+```
+
 ## Support and upstream projects
 
 - Report problems with this maintenance fork through this repository's [issue tracker](https://github.com/mediocreatmybest/ROM-OH-MATIC/issues). I'll do my best to try and fix the build and/or container issues. _(Pull Requests WELCOME, please!!)_

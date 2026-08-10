@@ -53,6 +53,11 @@ use constant CERT_MAX_BYTES   => 65536;      # 64 KiB -- one certificate
 use constant BINARY_MAX_BYTES => 33_554_432; # 32 MiB -- generous for any real iPXE EFI binary
 use constant VERIFY_TIMEOUT_SECS => 10;
 
+# Written by start.sh, once, when UI_REMOVE_CERT_FEATURE=true -- see the
+# identical constant and comment in build.fcgi, which this endpoint's
+# feature toggle must always agree with.
+use constant CERT_FEATURE_FLAG => "/opt/rom-o-matic/.cert-feature-disabled";
+
 # Duplicate original STDOUT and STDERR before the main loop starts
 # redirecting them per-request (see build.fcgi's identical pattern).
 open my $origstdout, ">&", \*STDOUT or die "Could not dup STDOUT: $!\n";
@@ -107,6 +112,9 @@ sub respond {
 
 sub verify {
   my $cgi = shift;
+
+  return { error => "Certificate verification is disabled on this deployment." }
+      if -e CERT_FEATURE_FLAG;
 
   return { error => "This endpoint accepts POST only." }
       unless uc ( $cgi->request_method() // "" ) eq "POST";

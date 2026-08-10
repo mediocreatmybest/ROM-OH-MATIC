@@ -150,6 +150,9 @@
 				</div>
 			</div>
 
+			<!-- CERT_FEATURE:BEGIN -- both certificate sections below (HTTPS
+			     trust and Secure Boot signing/verification) are removed as
+			     one block when UI_REMOVE_CERT_FEATURE=true. See start.sh. -->
 			<div id="trust" class="trust" style="display: none">
 				<div class="spacer">
 				<details class="section-fold" id="trust_fold">
@@ -286,6 +289,7 @@
 				</details>
 				</div>
 			</div>
+			<!-- CERT_FEATURE:END -->
 			</div> <!-- End ADV form -->
 
 			<div id="embedded" class="embedded" style="display: none">

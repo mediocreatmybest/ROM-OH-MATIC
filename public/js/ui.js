@@ -600,11 +600,19 @@ onReady(function() {
                                 document.getElementById('embed').value = preset.embed;
                         }
 
+                        /* Absent when UI_REMOVE_CERT_FEATURE has stripped the
+                         * trust section out of the page entirely -- a preset
+                         * asking for a certificate has nowhere to send the
+                         * user on a deployment where that feature doesn't
+                         * exist, so this note is the only trace of it. */
                         if (preset.requires_trust_cert) {
-                                document.getElementById('trust_custom').click();
-                                /* The preset has just asked for a certificate the
-                                 * user still has to supply, so show them where. */
-                                openFold('trust_fold');
+                                var trustCustomRadio = document.getElementById('trust_custom');
+                                if (trustCustomRadio) {
+                                        trustCustomRadio.click();
+                                        openFold('trust_fold');
+                                } else {
+                                        notes.push('this preset asks for a custom trust certificate, but certificate trust is not available on this deployment');
+                                }
                         }
 
                         var summary = 'Applied ' + applied + ' option' + (applied === 1 ? '' : 's') + ' from "' + preset.name + '".';
@@ -759,7 +767,9 @@ onReady(function() {
         document.getElementById('outputformatstd').selectedIndex = 0;
         document.getElementById('outputformatadv').selectedIndex = 0;
         document.getElementById('embed').value = '';
-        document.getElementById('trust_standard').checked = true;
+        /* Absent when UI_REMOVE_CERT_FEATURE has removed the trust section. */
+        var trustStandardRadio = document.getElementById('trust_standard');
+        if (trustStandardRadio) { trustStandardRadio.checked = true; }
 
         document.getElementById('formtype').addEventListener('change', function() {
                 var wizardtype = document.querySelector('input[name=wizardtype]:checked').value;
@@ -807,6 +817,16 @@ onReady(function() {
                 if (fold) { fold.open = true; }
         }
 
+        /* Sets display on an element that may not exist at all --
+         * UI_REMOVE_CERT_FEATURE removes the trust and Secure Boot sections
+         * from the page entirely, rather than just hiding them, so every
+         * display toggle that touches one of those has to tolerate it being
+         * absent from the DOM. */
+        function setDisplayIfPresent(id, value) {
+                var el = document.getElementById(id);
+                if (el) { el.style.display = value; }
+        }
+
         /* BIOS (bindir exactly "bin", not "bin-i386-efi"/"bin-x86_64-efi")
          * builds don't compile in HTTPS at all -- a long-standing iPXE
          * decision, not a bug -- so certificate trust has no effect there.
@@ -815,8 +835,7 @@ onReady(function() {
          * doesn't apply. */
         function updateTrustBiosWarning(outputformat) {
                 var bindir = outputformat.split('/')[0];
-                document.getElementById('trust_bios_warning').style.display =
-                        (bindir === 'bin') ? 'block' : 'none';
+                setDisplayIfPresent('trust_bios_warning', (bindir === 'bin') ? 'block' : 'none');
         }
 
         /* Secure Boot signing applies to EFI boot applications only.
@@ -832,8 +851,7 @@ onReady(function() {
                 var bindir = outputformat.split('/')[0];
                 var binary = outputformat.split('/')[1] || '';
                 var signable = /-efi$/.test(bindir) && !/rom$/.test(binary);
-                document.getElementById('secureboot').style.display =
-                        signable ? 'block' : 'none';
+                setDisplayIfPresent('secureboot', signable ? 'block' : 'none');
         }
 
         document.getElementById('outputformatadv').addEventListener('change', function() {
@@ -845,7 +863,7 @@ onReady(function() {
                         document.getElementById('rom').style.display = 'inline';
                         document.getElementById('iface').style.display = 'none';
                         document.getElementById('config').style.display = 'none';
-                        document.getElementById('trust').style.display = 'inline';
+                        setDisplayIfPresent('trust', 'inline');
                         document.getElementById('embedded').style.display = 'inline';
                         document.getElementById('debug').style.display = 'none';
                         document.getElementById('gitversion').style.display = 'inline';
@@ -856,7 +874,7 @@ onReady(function() {
                         document.getElementById('rom').style.display = 'none';
                         document.getElementById('iface').style.display = 'none';
                         document.getElementById('config').style.display = 'none';
-                        document.getElementById('trust').style.display = 'none';
+                        setDisplayIfPresent('trust', 'none');
                         document.getElementById('embedded').style.display = 'none';
                         document.getElementById('debug').style.display = 'none';
                         document.getElementById('gitversion').style.display = 'none';
@@ -867,7 +885,7 @@ onReady(function() {
                         document.getElementById('rom').style.display = 'none';
                         document.getElementById('iface').style.display = 'inline';
                         document.getElementById('config').style.display = 'inline';
-                        document.getElementById('trust').style.display = 'inline';
+                        setDisplayIfPresent('trust', 'inline');
                         document.getElementById('embedded').style.display = 'inline';
                         document.getElementById('debug').style.display = 'inline';
                         document.getElementById('gitversion').style.display = 'inline';
@@ -981,7 +999,8 @@ onReady(function() {
                  * rather than silently submitting standard trust instead. */
                 var trustCertToSend = null;
                 if (wizard == "advanced") {
-                        var trustMode = document.querySelector('input[name=trustmode]:checked').value;
+                        var trustModeRadio = document.querySelector('input[name=trustmode]:checked');
+                        var trustMode = trustModeRadio ? trustModeRadio.value : 'standard';
                         if (trustMode == "custom") {
                                 if (!trustCertPem) {
                                         var trustStatus = document.getElementById('trust_cert_status');
@@ -1681,6 +1700,12 @@ onReady(function() {
          * into a URL directly (see the note on buildcfg()'s
          * omitTrustCert). */
         (function() {
+                /* Absent entirely when UI_REMOVE_CERT_FEATURE has stripped
+                 * this section out of the page -- createCertUploadWidget()
+                 * assumes every element it's given actually exists, so this
+                 * has to stop here rather than let it hit a null fileInput. */
+                if (!document.getElementById('trust')) { return; }
+
                 var trustWidget = createCertUploadWidget({
                         fileInputId: 'trust_cert_file',
                         textInputId: 'trust_cert_text',
@@ -1703,6 +1728,11 @@ onReady(function() {
          * touches key material at all, and is available regardless of
          * whether the consent checkbox below has ever been ticked. */
         (function() {
+                /* Absent entirely when UI_REMOVE_CERT_FEATURE has stripped
+                 * this section out of the page -- same reasoning as the
+                 * trust widget's guard above. */
+                if (!document.getElementById('secureboot')) { return; }
+
                 /* POST keeps the signing key out of URLs and access logs
                  * (see build.fcgi's sign_binary()), but that says nothing
                  * about the network path itself: plain HTTP is still
@@ -1794,7 +1824,10 @@ onReady(function() {
          * nothing to add. */
         function appendSignFields(formData) {
                 var consentCheckbox = document.getElementById('sign_consent');
-                if (!consentCheckbox.checked) { return null; }
+                /* Absent when UI_REMOVE_CERT_FEATURE has removed the section
+                 * -- nothing to sign with, so behave exactly as if the
+                 * (nonexistent) checkbox were unticked. */
+                if (!consentCheckbox || !consentCheckbox.checked) { return null; }
                 var keyFile = document.getElementById('sign_key_file').files[0];
                 if (!keyFile && !signCertPem) { return null; }
                 if (!keyFile || !signCertPem) {
