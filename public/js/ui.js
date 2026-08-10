@@ -1113,12 +1113,21 @@ onReady(function() {
 			document.getElementById('outputformatadv').value = fullbinary;
 			document.getElementById('outputformatadv').dispatchEvent(new Event('change'));
 		}
+		/* A saved URL only carries options that deviated from the
+		 * defaults, so any of them appearing here means this
+		 * configuration is not stock. The options list is collapsed by
+		 * default; leaving it that way would hide the very settings the
+		 * link was shared to convey. */
+		var restoredAnOption = false;
 		/* For all Checkboxes in options div */
 		document.querySelectorAll('#options input[type=checkbox]').forEach(function(input) {
 			var name = input.name;
 			var value = input.checked ? 1 : 0;
-			if (typeof args[name] != "undefined" && value != args[name]) {
-				input.checked = (args[name] == 1);
+			if (typeof args[name] != "undefined") {
+				restoredAnOption = true;
+				if (value != args[name]) {
+					input.checked = (args[name] == 1);
+				}
 			}
 		});
 		/* For all text field in options div */
@@ -1126,8 +1135,10 @@ onReady(function() {
 			var name = input.name;
 			if (typeof args[name] != "undefined") {
 				input.value = args[name];
+				restoredAnOption = true;
 			}
 		});
+		if (restoredAnOption) { openFold('config_fold'); }
 	}
 
         /* Shows a build failure (build.fcgi's 500 response body) in the
