@@ -220,11 +220,23 @@
 					<div class="notice">
 						<strong>Please note:</strong>
 						This is a convenience for a private or otherwise isolated
-						deployment. A signing key you supply passes through this
-						server's memory while it is used; it is never stored, logged,
-						or embedded in the binary, but that is only reassuring if you
-						trust this server itself. Not recommended if this instance is
-						shared with people you don't fully control.
+						deployment. A signing key you supply is used from this
+						server's memory and a temporary file for the duration of
+						this one request, then deleted -- it is never persistently
+						retained, logged, or embedded in the binary, but that is
+						only reassuring if you trust this server itself. Not
+						recommended if this instance is shared with people you
+						don't fully control.
+					</div>
+
+					<div id="sign_insecure_warning" class="notice" style="display: none">
+						<strong>This connection is not encrypted:</strong>
+						Submitting a signing key over plain HTTP keeps it out of
+						this page's own URLs and JavaScript-visible logs, but
+						does not protect it from anything able to read the raw
+						network traffic between your browser and this server.
+						Use HTTPS if this server has it, or keep this to a
+						network you trust completely.
 					</div>
 
 					<h3>Sign this build</h3>
@@ -233,8 +245,8 @@
 						enrolled in your own environment -- one generated for a FOG
 						server's <code>--secure-boot-key</code>, for instance -- you
 						can sign the binary this build produces with it. Nothing here
-						generates, stores, or enrols a key; it is used once, to sign,
-						and discarded.
+						generates or enrols a key, and none is retained after this
+						request finishes; it is used once, to sign, and discarded.
 					</p>
 
 					<label for="sign_consent"><input type="checkbox" id="sign_consent" /> I understand the note above and want to sign this build</label>

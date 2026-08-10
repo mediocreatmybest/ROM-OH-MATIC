@@ -724,6 +724,21 @@ sub sign_binary {
   die "SIGN_KEY does not look like a private key\n" unless
       $keyContent =~ /-----BEGIN (RSA |EC |DSA |ENCRYPTED )?PRIVATE KEY-----/;
 
+  # sbsign takes a key file path only -- there is nowhere to give it a
+  # passphrase, so a passphrase-protected key would reach it and fail
+  # there instead, confusingly and only after the timeout below. Caught
+  # here for a clear, immediate error instead. Two distinct PEM shapes
+  # mean "encrypted": PKCS#8's own "ENCRYPTED PRIVATE KEY" label, and the
+  # older PKCS#1 style, where "-----BEGIN RSA PRIVATE KEY-----" carries an
+  # unencrypted-looking label but a "Proc-Type: 4,ENCRYPTED" header two
+  # lines in.
+  die "SIGN_KEY is a passphrase-protected private key; sbsign has no way ".
+      "to be given a passphrase, so only a plain, unencrypted key works ".
+      "here. Decrypt it first, e.g. \"openssl rsa -in encrypted.key -out ".
+      "plain.key\", then supply the result.\n"
+      if $keyContent =~ /-----BEGIN ENCRYPTED PRIVATE KEY-----/ ||
+         $keyContent =~ /^Proc-Type:\s*4,\s*ENCRYPTED/m;
+
   # sbsign only understands PE/COFF (EFI) images. Rejected outright
   # rather than skipped, so a client-side gating bug surfaces here
   # instead of handing back an unsigned binary the requester believes is

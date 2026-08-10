@@ -1703,6 +1703,18 @@ onReady(function() {
          * touches key material at all, and is available regardless of
          * whether the consent checkbox below has ever been ticked. */
         (function() {
+                /* POST keeps the signing key out of URLs and access logs
+                 * (see build.fcgi's sign_binary()), but that says nothing
+                 * about the network path itself: plain HTTP is still
+                 * readable by anything between this browser and the server.
+                 * Loopback is exempted since nothing there ever leaves the
+                 * machine, which also keeps this quiet for local testing. */
+                var LOOPBACK_HOSTNAMES = /^(localhost|127\.\d+\.\d+\.\d+|\[?::1\]?)$/i;
+                if (location.protocol !== 'https:' && !LOOPBACK_HOSTNAMES.test(location.hostname)) {
+                        var insecureWarning = document.getElementById('sign_insecure_warning');
+                        if (insecureWarning) { insecureWarning.style.display = ''; }
+                }
+
                 var signWidget = createCertUploadWidget({
                         fileInputId: 'sign_cert_file',
                         textInputId: 'sign_cert_text',
