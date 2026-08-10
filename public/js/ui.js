@@ -1094,6 +1094,21 @@ onReady(function() {
 		document.getElementById('setdebug').value = debug;
 		document.getElementById('gitrevision').value = revision;
 		document.getElementById('embed').value = embed;
+		/* Any URL key that isn't one of the fixed fields read above is an
+		 * option override. Standard mode neither shows nor submits
+		 * #options -- buildcfgParams() only reads it when wizard ==
+		 * "advanced" -- so a config carrying one has to land in advanced
+		 * regardless of what the output format alone would pick, or the
+		 * override silently never reaches the build. Confirmed by testing:
+		 * without this check, a saved link for "EFI x86_64 snponly" (which
+		 * exists in both wizards' lists) with a PRODUCT_NAME override chose
+		 * standard mode, restored the value into the now-hidden input, and
+		 * submitted a build with no PRODUCT_NAME override at all. */
+		var FIXED_ARGS = { BINDIR: true, BINARY: true, REVISION: true, DEBUG: true,
+			'EMBED.00script.ipxe': true };
+		var hasOptionOverrides = Object.keys(args).some(function(key) {
+			return !FIXED_ARGS[key];
+		});
 		/* The standard and advanced wizards use different, only
 		 * partially-overlapping sets of BINDIR/BINARY values (e.g.
 		 * "undionly.kpxe" only exists in the standard wizard's list).
@@ -1104,7 +1119,7 @@ onReady(function() {
 		var isStandardValue = Array.from(document.querySelectorAll('#outputformatstd option')).some(function(opt) {
 			return opt.value === fullbinary;
 		});
-		if (isStandardValue) {
+		if (isStandardValue && !hasOptionOverrides) {
 			document.getElementById('standard').click();
 			document.getElementById('outputformatstd').value = fullbinary;
 			document.getElementById('outputformatstd').dispatchEvent(new Event('change'));
