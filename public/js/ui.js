@@ -740,10 +740,23 @@ onReady(function() {
                 });
         });
 
-        /* Reset from on reload */
+        /* Undo the browser's own form-state restoration on a soft reload, so
+         * the page always starts from the markup's defaults rather than from
+         * whatever was on screen before F5. Firefox restores far more than
+         * Chromium does here, which is why this is browser-visible: the
+         * fields below all looked correct in Chrome and stale in Firefox.
+         *
+         * The embedded script and trust mode matter beyond looking untidy,
+         * because capturePresetBaseline() reads them as "what the user had
+         * before any preset touched this form". A value the browser put back
+         * is not that, but is indistinguishable from it by the time the
+         * baseline is taken -- so selecting a preset and then returning to
+         * None restored a script the user never typed in this page load. */
         document.querySelector('input[name=wizardtype]').checked = true;
         document.getElementById('outputformatstd').selectedIndex = 0;
         document.getElementById('outputformatadv').selectedIndex = 0;
+        document.getElementById('embed').value = '';
+        document.getElementById('trust_standard').checked = true;
 
         document.getElementById('formtype').addEventListener('change', function() {
                 var wizardtype = document.querySelector('input[name=wizardtype]:checked').value;
