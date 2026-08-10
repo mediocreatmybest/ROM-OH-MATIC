@@ -3,7 +3,7 @@
 set -euo pipefail
 
 echo "== Shell syntax check =="
-for f in install.sh start.sh update.sh; do
+for f in install.sh start.sh update.sh scripts/ci/*.sh; do
   bash -n "$f"
 done
 

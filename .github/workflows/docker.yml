@@ -101,6 +101,17 @@ jobs:
       - name: Smoke-test iPXE builds
         run: bash scripts/ci/smoke-builds.sh
 
+      # sbverify, used to independently re-check a signed binary from
+      # outside the container that produced it (see smoke-signing.sh) --
+      # the container has its own copy, but this proves the returned file
+      # verifies on its own merits, not just according to the code under
+      # test.
+      - name: Install sbsigntool
+        run: sudo apt-get update && sudo apt-get install --yes sbsigntool
+
+      - name: Smoke-test Secure Boot signing and verification
+        run: bash scripts/ci/smoke-signing.sh
+
       - name: Print container logs on failure
         if: failure()
         run: docker logs rom-o-matic-smoke
