@@ -29,14 +29,10 @@ onReady(function() {
          * this. */
         var trustCertPem = null;
 
-        /* Set by the "Secure Boot signing & verification" section below.
-         * signCertPem, like trustCertPem, is validated PEM text picked up
-         * at submit time. There is no equivalent "signKeyPem" -- a
-         * private key is read directly from its <input type=file> at
-         * submit time instead (see appendSignFields()), never routed
-         * through certificate.php or held in a variable here, so it
-         * exists in this page for as long as the browser's own File
-         * object does and no longer. */
+        /* Validated PEM for the "Secure Boot signing & verification"
+         * section. Note there is deliberately no "signKeyPem" alongside
+         * these: the private key is read from its file input at submit
+         * time and never stored here. */
         var signCertPem = null;
         var verifyCertPem = null;
 
@@ -797,17 +793,21 @@ onReady(function() {
                         (bindir === 'bin') ? 'block' : 'none';
         }
 
-        /* sbsign only understands PE/COFF (EFI) images -- see
-         * build.fcgi's sign_binary(), which enforces the same thing
-         * server-side. Hidden outright rather than shown-with-a-warning
-         * like the trust section above: unlike HTTPS trust, which is a
-         * real (if inert) iPXE build option on every format, signing has
-         * no meaning at all for a non-EFI output, so there is nothing to
-         * explain -- just nowhere to put it. */
+        /* Secure Boot signing applies to EFI boot applications only.
+         * Hidden rather than warned about (unlike the trust section
+         * above): for other formats there is nothing to explain, the
+         * option simply does not exist.
+         *
+         * The *rom outputs are excluded despite living in an -efi
+         * bindir -- a flashable option ROM is not what firmware checks a
+         * Secure Boot signature on. build.fcgi's sign_binary() rejects
+         * them server-side too. */
         function updateSecureBootVisibility(outputformat) {
                 var bindir = outputformat.split('/')[0];
+                var binary = outputformat.split('/')[1] || '';
+                var signable = /-efi$/.test(bindir) && !/rom$/.test(binary);
                 document.getElementById('secureboot').style.display =
-                        /-efi$/.test(bindir) ? 'block' : 'none';
+                        signable ? 'block' : 'none';
         }
 
         document.getElementById('outputformatadv').addEventListener('change', function() {
@@ -1467,20 +1467,14 @@ onReady(function() {
         })();
 
         /* Wires a file-or-paste certificate input pair to certificate.php
-         * and a status/preview display -- the interaction the "HTTPS
-         * certificate trust", "Sign for Secure Boot", and "Verify a
-         * binary" sections all need identically, factored out rather than
-         * copied three times.
+         * and a status/preview display. Shared by the three sections that
+         * need it identically: HTTPS trust, Secure Boot signing, and
+         * verification.
          *
-         * onChange(pem-or-null) is called whenever the validated result
-         * changes: a normalised PEM on success, null when cleared or
-         * invalidated. Callers use it to store the PEM wherever it needs
-         * to end up (trustCertPem, or a section-local variable) and/or to
-         * react to it (e.g. preset drift detection).
-         *
-         * Returns {reset}, so a caller can programmatically clear the
-         * widget -- e.g. when the section that contains it is hidden --
-         * without duplicating the field-clearing/generation-bump logic. */
+         * onChange(pem-or-null) fires whenever the validated result
+         * changes -- normalised PEM on success, null when cleared -- so
+         * the caller can store it wherever it belongs. Returns {reset}
+         * for callers that hide the section and need to clear it. */
         function createCertUploadWidget(opts) {
                 var statusEl = document.getElementById(opts.statusId);
                 var previewEl = document.getElementById(opts.previewId);
@@ -1658,7 +1652,10 @@ onReady(function() {
                         onChange: function(pem) { signCertPem = pem; }
                 });
 
-                var verifyWidget = createCertUploadWidget({
+                /* No handle kept: nothing hides or resets this one, unlike
+                 * the signing widget above, which the consent checkbox
+                 * clears. It works purely through its own listeners. */
+                createCertUploadWidget({
                         fileInputId: 'verify_cert_file',
                         textInputId: 'verify_cert_text',
                         statusId: 'verify_cert_status',
@@ -1676,13 +1673,10 @@ onReady(function() {
                         }
                 });
 
+                /* cssClass is 'match' (green), 'nomatch' (red), or null
+                 * while a check is in flight. */
                 function setVerifyResult(text, cssClass) {
                         var el = document.getElementById('verify_result');
-                        if (!text) {
-                                el.style.display = 'none';
-                                el.className = 'verify-result';
-                                return;
-                        }
                         el.textContent = text;
                         el.className = 'verify-result' + ( cssClass ? ' ' + cssClass : '' );
                         el.style.display = '';
@@ -1718,21 +1712,15 @@ onReady(function() {
                 });
         })();
 
-        /* Adds SIGN_KEY/SIGN_CERT to an outgoing build FormData -- called
-         * from the #ipxeimage submit handler below, kept as a top-level
-         * function (rather than folded into the IIFE above) so it can be
-         * reached from there. Only ever appends a File object taken
-         * directly from the <input type=file> at the moment of submit,
-         * the same way the "HTTPS certificate trust" section's
-         * TRUST_CERT never routes a key through anything else; there is
-         * no equivalent long-lived "signKeyPem" variable to accidentally
-         * reuse or leak into an unrelated request.
+        /* Adds SIGN_KEY/SIGN_CERT to an outgoing build FormData. The key
+         * is taken straight from its <input type=file> at submit time and
+         * never held in a variable, so it cannot leak into a later
+         * request.
          *
-         * Returns an error string to show inline if signing was opted
-         * into but is incomplete, so an inconsistent state never
-         * surfaces as a build that silently went out unsigned instead of
-         * the requested signed build. Returns null when there is nothing
-         * to do (box unchecked) or everything needed is present. */
+         * Returns an error string when signing was asked for but is
+         * incomplete -- better than quietly building unsigned when the
+         * requester expected a signed binary -- or null when there is
+         * nothing to add. */
         function appendSignFields(formData) {
                 var consentCheckbox = document.getElementById('sign_consent');
                 if (!consentCheckbox.checked) { return null; }

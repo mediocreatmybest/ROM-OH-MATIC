@@ -592,6 +592,32 @@ use constant TRUST_MAX_BYTES => 65536; # 64 KiB -- keep in sync with
 use constant TRUST_MAX_CERTS => 8;     # keep in sync with certificate.php's
                                         # MAX_CERT_COUNT
 
+# Shared by trust_cert() and sign_binary(): both take certificate
+# material from the request, and neither ever wants a private key in it.
+# One implementation rather than two, so a marker added here covers both.
+use constant PRIVATE_KEY_MARKERS => (
+  "-----BEGIN PRIVATE KEY-----",
+  "-----BEGIN RSA PRIVATE KEY-----",
+  "-----BEGIN EC PRIVATE KEY-----",
+  "-----BEGIN ENCRYPTED PRIVATE KEY-----",
+  "-----BEGIN DSA PRIVATE KEY-----",
+);
+
+sub reject_private_key {
+  my $text = shift;
+  my $field = shift;
+  foreach my $marker ( PRIVATE_KEY_MARKERS ) {
+    die "Private key material was detected in ".$field." and is not accepted\n"
+	if index ( $text, $marker ) >= 0;
+  }
+}
+
+sub pem_cert_blocks {
+  my $text = shift;
+  return ( $text =~
+	   /(-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----)/sg );
+}
+
 sub trust_cert {
   my $cgi = shift;
   my $params = shift;
@@ -613,22 +639,12 @@ sub trust_cert {
   die "Certificate data exceeds the ".TRUST_MAX_BYTES()."-byte limit\n"
       if length ( $pem ) > TRUST_MAX_BYTES;
 
-  # Never accept private key material -- this is a public-certificate-
-  # trust feature, not a client-key manager.
-  foreach my $marker ( "-----BEGIN PRIVATE KEY-----",
-			"-----BEGIN RSA PRIVATE KEY-----",
-			"-----BEGIN EC PRIVATE KEY-----",
-			"-----BEGIN ENCRYPTED PRIVATE KEY-----",
-			"-----BEGIN DSA PRIVATE KEY-----" ) {
-    die "Private key material was detected and is not accepted\n"
-	if index ( $pem, $marker ) >= 0;
-  }
+  # This is a public-certificate-trust feature, not a client-key manager.
+  reject_private_key ( $pem, "TRUST_CERT" );
 
-  # Extract individual PEM blocks -- a bundle (e.g. a private root CA plus
-  # an intermediate CA it signed) is supported, not just a single
-  # certificate.
-  my @blocks = ( $pem =~
-		 /(-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----)/sg );
+  # A bundle (e.g. a private root CA plus an intermediate CA it signed) is
+  # supported here, not just a single certificate.
+  my @blocks = pem_cert_blocks ( $pem );
   die "No PEM certificate blocks found in TRUST_CERT\n" unless @blocks;
   die "Too many certificates (".scalar ( @blocks ).
       "); the limit is ".TRUST_MAX_CERTS()."\n" if @blocks > TRUST_MAX_CERTS;
@@ -664,34 +680,30 @@ sub trust_cert {
 
 ###############################################################################
 #
-# Sign a just-built EFI binary for Secure Boot with an admin-supplied key.
+# Sign a just-built EFI binary for Secure Boot with a key the caller
+# already holds and has enrolled themselves (a FOG server's
+# --secure-boot-key, for instance). Nothing here generates, stores or
+# enrols a key -- it signs once and the temp dir takes the key with it.
 #
-# This is a convenience for a private or otherwise isolated deployment --
-# it assumes the caller already holds a key/certificate pair enrolled in
-# their own environment (a FOG server's --secure-boot-key, for instance)
-# and just wants iPXE signed with it. Nothing here generates, stores, or
-# enrols a key; see public/verify.fcgi for the certificate-only side of
-# this, kept in a separate file specifically so key handling and "no key
-# involved at all" checking never share a code path.
-#
-# Modelled on FOG's own fog-sign-kernel/_resignKernels: sbsign, then
-# sbverify the result before trusting it, since an exit status alone is
-# not evidence (see FOGProject/fogproject docs/adr/0008 -- cert-to-efi-
-# sig-list's silent-success failure mode is the same class of mistake:
-# report success without having actually checked the thing that matters).
+# Modelled on FOG's fog-sign-kernel: sbsign, then sbverify the result
+# before returning it, because an exit status alone is not evidence.
+# Certificate-only verification lives in verify.fcgi, kept a separate
+# file so key handling never shares a code path with it.
 #
 
 use constant SIGN_KEY_MAX_BYTES  => 16384; # 16 KiB -- a private key is small;
                                             # this is not a bundle format
-use constant SIGN_CERT_MAX_BYTES => 65536; # keep in sync with TRUST_MAX_BYTES
-use constant SIGN_TIMEOUT_SECS   => 20;    # sbsign; verify's own check below
-                                            # gets the shorter sbverify budget
+use constant SIGN_CERT_MAX_BYTES => TRUST_MAX_BYTES; # same field shape
+use constant SIGN_TIMEOUT_SECS   => 20;    # generous; sbsign on a few MB is
+                                            # near-instant, so this only ever
+                                            # catches something wedged
 
 sub sign_binary {
   my $cgi = shift;
   my $keyContent = shift;
   my $certPem = shift;
   my $bindir = shift;
+  my $binary = shift;
   my $infile = shift;
 
   return unless ( defined $keyContent && length $keyContent ) ||
@@ -712,40 +724,32 @@ sub sign_binary {
   die "SIGN_KEY does not look like a private key\n" unless
       $keyContent =~ /-----BEGIN (RSA |EC |DSA |ENCRYPTED )?PRIVATE KEY-----/;
 
-  # sbsign only understands PE/COFF (EFI) images -- signing a BIOS-format
-  # output would either fail confusingly or, worse, appear to succeed
-  # while producing something no firmware will ever check. Reject
-  # outright rather than silently skipping: a client-side gating bug
-  # should surface here, not hand back an unsigned binary the requester
-  # believes is signed.
+  # sbsign only understands PE/COFF (EFI) images. Rejected outright
+  # rather than skipped, so a client-side gating bug surfaces here
+  # instead of handing back an unsigned binary the requester believes is
+  # signed. The *rom outputs share the -efi bindirs but are flashable
+  # option ROMs, not something firmware Secure Boot checks.
   die "Secure Boot signing only applies to EFI binaries (BINDIR ending ".
       "in \"-efi\"), not \"".$bindir."\"\n"
       unless $bindir =~ /-efi$/;
+  die "Secure Boot signing does not apply to ROM images (\"".$binary."\")\n"
+      if $binary =~ /rom$/;
 
   die "Certificate data exceeds the ".SIGN_CERT_MAX_BYTES()."-byte limit\n"
       if length ( $certPem ) > SIGN_CERT_MAX_BYTES;
-  my @certBlocks = ( $certPem =~
-		      /(-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----)/sg );
+  # Checked before anything is parsed out of the field, matching
+  # trust_cert(): the key belongs in SIGN_KEY, and this is the public
+  # half only.
+  reject_private_key ( $certPem, "SIGN_CERT" );
+  # Unlike TRUST_CERT, exactly one certificate: sbsign signs with one.
+  my @certBlocks = pem_cert_blocks ( $certPem );
   die "No PEM certificate block found in SIGN_CERT\n" unless @certBlocks;
   die "Only a single certificate is supported for signing; ".
       scalar ( @certBlocks )." were supplied\n" if @certBlocks > 1;
-  # Defence in depth: SIGN_CERT is meant to be a public certificate,
-  # already normalised by certificate.php client-side. Confirm it does
-  # not itself carry key material before it ever reaches a temp file --
-  # mirrors trust_cert()'s identical guard on the same field shape.
-  foreach my $marker ( "-----BEGIN PRIVATE KEY-----",
-			"-----BEGIN RSA PRIVATE KEY-----",
-			"-----BEGIN EC PRIVATE KEY-----",
-			"-----BEGIN ENCRYPTED PRIVATE KEY-----",
-			"-----BEGIN DSA PRIVATE KEY-----" ) {
-    die "SIGN_CERT contains private key material, which is not accepted ".
-	"in that field\n" if index ( $certPem, $marker ) >= 0;
-  }
 
-  # Dedicated, per-build temporary directory -- CLEANUP removes the key
-  # copy below the moment this request ends, success or failure, the same
-  # guarantee trust_cert()'s and embed()'s temp dirs already give their
-  # contents.
+  # CLEANUP removes the staged key below the moment this request ends,
+  # success or failure -- the same guarantee trust_cert()'s and embed()'s
+  # temp dirs already give their contents.
   my $signdirfh = File::Temp->newdir ( "ipxe-sign-XXXXXX", DIR => $tmpdir,
 					CLEANUP => ! $keep );
   my $signdir = $signdirfh->dirname;
@@ -792,15 +796,12 @@ sub build {
   my $path_info = $cgi->path_info();
   my $params = $cgi->Vars;
 
-  # Read before deleting, both fields: CGI::Vars() returns a hash tied to
-  # the live CGI object, not an independent snapshot, so deleting a key
-  # from %$params deletes that param from $cgi itself -- confirmed the
-  # hard way, deleting SIGN_KEY first and then calling $cgi->param() for
-  # it a line later returned undef, correctly, because there was nothing
-  # left to return. SIGN_CERT already followed this order by chance
-  # (capturing delete's return value in one step); SIGN_KEY needs it done
-  # deliberately, since resolving it takes a couple of extra steps
-  # (tmpFileName, then reading the file) that must all happen first.
+  # Read the signing fields before deleting them. CGI::Vars() returns a
+  # hash tied to the live CGI object, not a copy, so deleting from
+  # %$params removes the param from $cgi too -- delete SIGN_KEY first and
+  # the $cgi->param() below correctly finds nothing. They are deleted at
+  # all because config_local() treats every leftover key as a
+  # "header.h/DEFINE" build option and dies on anything else.
   my $keyUpload = $cgi->param ( "SIGN_KEY" );
   my $signKeyContent;
   if ( $keyUpload ) {
@@ -923,13 +924,11 @@ sub build {
   # Return target
   my $outfile = catfile ( $worktree, "src", $bindir, $binary );
 
-  # Sign for Secure Boot, if requested. Substitutes the signed copy for
-  # $outfile so everything below -- opening it, returning it, the
-  # Content-Length the client sees -- is unaware anything happened here;
-  # $signdirfh is kept alive in this scope purely so its CLEANUP does not
-  # fire (removing the signed copy along with the key that produced it)
-  # until this request is entirely done with the file.
-  ( my $signedfile, my $signdirfh ) = sign_binary ( $cgi, $signKeyContent, $signCertPem, $bindir, $outfile );
+  # Sign for Secure Boot, if requested, substituting the signed copy so
+  # everything below is unaware it happened. $signdirfh has to stay in
+  # scope: its CLEANUP takes the signed file with it when it goes.
+  ( my $signedfile, my $signdirfh ) =
+      sign_binary ( $cgi, $signKeyContent, $signCertPem, $bindir, $binary, $outfile );
   $outfile = $signedfile if $signedfile;
 
   warn "Returning final target ".$outfile."...\n" if $verbosity > 1;

@@ -9,20 +9,15 @@
 # Website:  https://ipxe.org, https://github.com/xbgmsharp/ipxe-buildweb
 #------------------------------------------------------------------------
 #
-# Standalone from build.fcgi on purpose: this checks a binary the caller
-# already has -- built here, built elsewhere, or received from a third
-# party -- not one this request builds. It shares build.fcgi's process
-# model (FastCGI via the same mod_fcgid handler, no separate Apache
-# config needed) and its subprocess-safety conventions (list-form exec,
-# app-generated temp paths, per-request cleanup), but none of its git/
-# cache machinery, which this has no use for.
+# Checks a binary the caller already has -- built here, built elsewhere,
+# or received from a third party -- rather than one this request builds.
+# Shares build.fcgi's process model (FastCGI under the same mod_fcgid
+# handler) and its subprocess conventions, but none of its git/cache
+# machinery.
 #
-# Takes only a PUBLIC certificate. There is no key material anywhere in
-# this file -- see build.fcgi's sign_binary() for the signing side, which
-# is deliberately kept separate for exactly that reason: this endpoint's
-# whole safety story is "nothing secret ever arrives here", and mixing it
-# into the same code path as key handling would put that one keystroke
-# away from being wrong.
+# Takes only a PUBLIC certificate; no key material exists anywhere in
+# this file. That is the whole reason it is a separate file from
+# build.fcgi's sign_binary() rather than another branch inside it.
 #
 ### Dependencies
 # apt-get install sbsigntool
@@ -34,8 +29,7 @@
 use CGI qw ( :cgi );
 use FCGI;
 use File::Temp;
-use File::Spec::Functions qw ( tmpdir catdir catfile );
-use IO::File;
+use File::Spec::Functions qw ( tmpdir catfile );
 use IO::Handle;
 use IPC::Open3;
 use JSON::PP qw ( encode_json );
@@ -46,11 +40,12 @@ use warnings;
 
 my $tmpdir = tmpdir();
 
-# Bounds checked independently at the field level below; this is the
-# outer limit on the whole request body, checked by CGI.pm itself before
-# any of this script's own code runs. Without it, an upload with no
-# Content-Length ceiling at all would be fully buffered to disk before
-# the per-field size check ever gets a chance to reject it.
+# Outer limit on the whole request body, applied by CGI.pm before any of
+# this script's own field-level checks run -- otherwise an oversized
+# upload is buffered to disk in full before anything rejects it. Must
+# stay under install.sh's FcgidMaxRequestLen, or mod_fcgid rejects the
+# request with its own generic 500 first and the JSON error below never
+# gets sent.
 use constant REQUEST_MAX_BYTES => 34_000_000; # binary + cert + multipart overhead
 $CGI::POST_MAX = REQUEST_MAX_BYTES;
 
@@ -66,17 +61,13 @@ open my $origstderr, ">&", \*STDERR or die "Could not dup STDERR: $!\n";
 ###############################################################################
 #
 # Run a command with a wall-clock timeout, capturing stdout and stderr
-# separately without ever going through a shell.
+# separately, never through a shell.
 #
-# Sequential blocking reads on the two pipes are safe here specifically
-# because the only command this is used for (sbverify) has an output
-# vocabulary consisting entirely of single short lines -- confirmed
-# empirically across every failure mode this script guards against
-# (unsigned, wrong certificate, truncated file, garbage input, missing
-# file). That is far below a pipe's buffer size, so the child can never
-# block waiting for this process to drain the other stream first. This
-# is not a generally-safe pattern for an arbitrary command; it is safe
-# for this one, known, bounded-output command.
+# Reading the two pipes sequentially would deadlock a command that fills
+# one while this waits on the other. Safe here only because the commands
+# used (sbverify, openssl x509 -noout) emit a single short line in every
+# case -- checked against each one this script handles. Not a pattern to
+# copy for an arbitrary command.
 #
 sub run_capturing {
   my @cmd = ( "timeout", VERIFY_TIMEOUT_SECS, @_ );
@@ -124,16 +115,17 @@ sub verify {
     return { error => "Request too large or malformed: ".$cgi->cgi_error() };
   }
 
-  # --- Certificate: PEM text only, already validated client-side by
-  # certificate.php -- independently re-validated here, same principle
-  # as build.fcgi's trust_cert(): never trust that validation already
-  # ran, since this endpoint is directly reachable on its own. ---
+  # Re-validated here even though certificate.php already checked it
+  # client-side -- this endpoint is reachable on its own, so it cannot
+  # assume that ran. (build.fcgi's trust_cert() takes the same position.)
   my $certPem = $cgi->param ( "VERIFY_CERT" );
   return { error => "No certificate supplied." }
       unless defined $certPem && length $certPem;
   return { error => "Certificate data exceeds the ".CERT_MAX_BYTES()."-byte limit." }
       if length ( $certPem ) > CERT_MAX_BYTES;
 
+  # Nothing here ever needs a key, so refuse one rather than quietly
+  # accepting and ignoring it.
   foreach my $marker ( "-----BEGIN PRIVATE KEY-----",
 			"-----BEGIN RSA PRIVATE KEY-----",
 			"-----BEGIN EC PRIVATE KEY-----",
@@ -149,9 +141,8 @@ sub verify {
   return { error => "Only a single certificate is supported for verification; ".scalar ( @certBlocks )." were supplied." }
       if @certBlocks > 1;
 
-  # --- Binary: an arbitrary upload, the whole reason this file exists.
-  # Never executed or interpreted as anything but bytes for sbverify to
-  # parse -- see run_capturing() above and the module comment. ---
+  # The uploaded binary. Only ever passed to sbverify as a path to parse;
+  # never executed, and never used to derive a path of our own.
   my $upload = $cgi->param ( "VERIFY_BINARY" );
   return { error => "No file was uploaded to verify." } unless $upload;
   my $uploadPath = $cgi->tmpFileName ( $upload );
