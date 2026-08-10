@@ -181,7 +181,7 @@
 						<textarea id="trust_cert_text" rows="8" cols="60" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea>
 						<br/><br/>
 						<div id="trust_cert_status" class="fetch-status" style="display: none"></div>
-						<div id="trust_cert_preview" style="display: none"></div>
+						<div id="trust_cert_preview" class="cert-preview" style="display: none"></div>
 
 						<p>
 							<details>
@@ -205,6 +205,67 @@
 							</details>
 						</p>
 					</div>
+				</div>
+			</div>
+
+			<div id="secureboot" class="secureboot" style="display: none">
+				<div class="spacer">
+					<h2 class="wizard-header">Secure Boot signing &amp; verification:</h2>
+
+					<div class="notice">
+						<strong>Please note:</strong>
+						This is a convenience for a private or otherwise isolated
+						deployment. A signing key you supply passes through this
+						server's memory while it is used; it is never stored, logged,
+						or embedded in the binary, but that is only reassuring if you
+						trust this server itself. Not recommended if this instance is
+						shared with people you don't fully control.
+					</div>
+
+					<h3>Sign this build</h3>
+					<p>
+						If you already hold a Secure Boot signing key and certificate
+						enrolled in your own environment -- one generated for a FOG
+						server's <code>--secure-boot-key</code>, for instance -- you
+						can sign the binary this build produces with it. Nothing here
+						generates, stores, or enrols a key; it is used once, to sign,
+						and discarded.
+					</p>
+
+					<label for="sign_consent"><input type="checkbox" id="sign_consent" /> I understand the note above and want to sign this build</label>
+
+					<div id="sign_fields" style="display: none">
+						<br/><br/>
+						<label for="sign_key_file">Private key file: <input type="file" id="sign_key_file" accept=".pem,.key,.txt" /></label>
+						<br/><br/>
+						Certificate file: <input type="file" id="sign_cert_file" accept=".pem,.crt,.cer,.der,.txt" />
+						<br/><br/>
+						Or paste PEM certificate:<br/>
+						<textarea id="sign_cert_text" rows="6" cols="60" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea>
+						<br/><br/>
+						<div id="sign_cert_status" class="fetch-status" style="display: none"></div>
+						<div id="sign_cert_preview" class="cert-preview" style="display: none"></div>
+					</div>
+
+					<h3>Verify a binary</h3>
+					<p>
+						Check whether an EFI binary you already have -- built here or
+						received from somewhere else entirely -- carries a Secure Boot
+						signature matching a certificate. Only the public certificate
+						is needed; no key is involved on this side at all.
+					</p>
+					<label for="verify_binary_file">Binary to check: <input type="file" id="verify_binary_file" /></label>
+					<br/><br/>
+					Certificate file: <input type="file" id="verify_cert_file" accept=".pem,.crt,.cer,.der,.txt" />
+					<br/><br/>
+					Or paste PEM certificate:<br/>
+					<textarea id="verify_cert_text" rows="6" cols="60" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea>
+					<br/><br/>
+					<div id="verify_cert_status" class="fetch-status" style="display: none"></div>
+					<div id="verify_cert_preview" class="cert-preview" style="display: none"></div>
+					<br/>
+					<input type="button" id="verify_button" value="Verify" class="savebutton" />
+					<div id="verify_result" style="display: none"></div>
 				</div>
 			</div>
 			</div> <!-- End ADV form -->

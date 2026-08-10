@@ -29,6 +29,17 @@ onReady(function() {
          * this. */
         var trustCertPem = null;
 
+        /* Set by the "Secure Boot signing & verification" section below.
+         * signCertPem, like trustCertPem, is validated PEM text picked up
+         * at submit time. There is no equivalent "signKeyPem" -- a
+         * private key is read directly from its <input type=file> at
+         * submit time instead (see appendSignFields()), never routed
+         * through certificate.php or held in a variable here, so it
+         * exists in this page for as long as the browser's own File
+         * object does and no longer. */
+        var signCertPem = null;
+        var verifyCertPem = null;
+
         /* Build an <option>, safely -- via textContent/property assignment
          * rather than string concatenation, so a value containing HTML
          * special characters (e.g. an iPXE header comment with a stray "<"
@@ -786,9 +797,23 @@ onReady(function() {
                         (bindir === 'bin') ? 'block' : 'none';
         }
 
+        /* sbsign only understands PE/COFF (EFI) images -- see
+         * build.fcgi's sign_binary(), which enforces the same thing
+         * server-side. Hidden outright rather than shown-with-a-warning
+         * like the trust section above: unlike HTTPS trust, which is a
+         * real (if inert) iPXE build option on every format, signing has
+         * no meaning at all for a non-EFI output, so there is nothing to
+         * explain -- just nowhere to put it. */
+        function updateSecureBootVisibility(outputformat) {
+                var bindir = outputformat.split('/')[0];
+                document.getElementById('secureboot').style.display =
+                        /-efi$/.test(bindir) ? 'block' : 'none';
+        }
+
         document.getElementById('outputformatadv').addEventListener('change', function() {
                 var outputformat = document.getElementById('outputformatadv').value;
                 updateTrustBiosWarning(outputformat);
+                updateSecureBootVisibility(outputformat);
                 if (outputformat.indexOf("rom", outputformat.length - 3) !== -1)
                 {	/* If a ROM */
                         document.getElementById('rom').style.display = 'inline';
@@ -1103,12 +1128,14 @@ onReady(function() {
                 if (!params) { return; }
                 var formData = new FormData();
                 params.forEach(function(value, key) { formData.append(key, value); });
+                var signError = appendSignFields(formData);
+                if (signError) { showBuildError(signError); return; }
                 /* POST, not the previous GET navigation -- a custom trust
                  * certificate's PEM (up to 64 KiB) must never travel in a
                  * URL: query strings end up in browser history and in
                  * front-end web-server/proxy access logs before build.fcgi's
                  * own request-parameter redaction ever gets a chance to
-                 * apply. */
+                 * apply. The same is true of SIGN_KEY, more so. */
                 fetch('build.fcgi', { method: 'POST', body: formData }).then(function(response) {
                         if (!response.ok) {
                                 return response.text().then(showBuildError);
@@ -1439,17 +1466,27 @@ onReady(function() {
                 }, false);
         })();
 
-        /* Advanced wizard's "HTTPS certificate trust" section -- validates
-         * a user-supplied certificate (file or pasted text) against
-         * certificate.php and renders a metadata preview. The validated,
-         * normalised PEM is stored in the outer trustCertPem variable for
-         * buildcfg() to pick up; nothing here ever writes it into a URL
-         * directly (see the note on buildcfg()'s omitTrustCert). */
-        (function() {
-                var statusEl = document.getElementById('trust_cert_status');
-                var previewEl = document.getElementById('trust_cert_preview');
-                var fileInput = document.getElementById('trust_cert_file');
-                var textInput = document.getElementById('trust_cert_text');
+        /* Wires a file-or-paste certificate input pair to certificate.php
+         * and a status/preview display -- the interaction the "HTTPS
+         * certificate trust", "Sign for Secure Boot", and "Verify a
+         * binary" sections all need identically, factored out rather than
+         * copied three times.
+         *
+         * onChange(pem-or-null) is called whenever the validated result
+         * changes: a normalised PEM on success, null when cleared or
+         * invalidated. Callers use it to store the PEM wherever it needs
+         * to end up (trustCertPem, or a section-local variable) and/or to
+         * react to it (e.g. preset drift detection).
+         *
+         * Returns {reset}, so a caller can programmatically clear the
+         * widget -- e.g. when the section that contains it is hidden --
+         * without duplicating the field-clearing/generation-bump logic. */
+        function createCertUploadWidget(opts) {
+                var statusEl = document.getElementById(opts.statusId);
+                var previewEl = document.getElementById(opts.previewId);
+                var fileInput = document.getElementById(opts.fileInputId);
+                var textInput = document.getElementById(opts.textInputId);
+                var onChange = opts.onChange || function() {};
 
                 function setStatus(text, isError) {
                         if (!text) {
@@ -1464,7 +1501,7 @@ onReady(function() {
                 function clearPreview() {
                         previewEl.style.display = 'none';
                         previewEl.replaceChildren();
-                        trustCertPem = null;
+                        onChange(null);
                 }
 
                 function addField(block, label, value) {
@@ -1508,16 +1545,15 @@ onReady(function() {
                 }
 
                 /* Incremented for every validation started, and for anything
-                 * that invalidates one (a new certificate, or leaving custom
-                 * trust). A response only counts if its generation is still
-                 * the current one.
+                 * that invalidates one (a new certificate, or the widget
+                 * being reset). A response only counts if its generation is
+                 * still the current one.
                  *
                  * Without this, two validations in flight together can land
                  * in either order, so an earlier certificate could overwrite
-                 * a later one -- or a response arriving after the user
-                 * switched back to standard trust could put trustCertPem
-                 * back, leaving a certificate that is no longer on screen
-                 * baked into the next build. */
+                 * a later one -- or a response arriving after the widget was
+                 * reset could call onChange with a certificate that is no
+                 * longer on screen. */
                 var validationGeneration = 0;
 
                 function invalidatePendingValidation() {
@@ -1538,11 +1574,12 @@ onReady(function() {
                                                 return;
                                         }
                                         var expired = data.certificates.some(function(c) { return c.expired; });
-                                        trustCertPem = data.certificates.map(function(c) { return c.pem; }).join('\n');
+                                        var pem = data.certificates.map(function(c) { return c.pem; }).join('\n');
                                         renderPreview(data.certificates);
                                         setStatus(expired ?
                                                 'Validated, but at least one certificate has expired.' :
                                                 'Certificate validated.', expired);
+                                        onChange(pem);
                                 })
                                 .catch(function(err) {
                                         if (generation !== validationGeneration) { return; }
@@ -1571,23 +1608,146 @@ onReady(function() {
                         validate(formData);
                 });
 
+                function reset() {
+                        fileInput.value = '';
+                        textInput.value = '';
+                        clearPreview();
+                        setStatus(null);
+                        /* A validation already in flight must not be allowed
+                         * to land and call onChange with a certificate that
+                         * was just cleared. */
+                        invalidatePendingValidation();
+                }
+
+                return { reset: reset };
+        }
+
+        /* Advanced wizard's "HTTPS certificate trust" section -- the
+         * validated, normalised PEM is stored in the outer trustCertPem
+         * variable for buildcfg() to pick up; nothing here ever writes it
+         * into a URL directly (see the note on buildcfg()'s
+         * omitTrustCert). */
+        (function() {
+                var trustWidget = createCertUploadWidget({
+                        fileInputId: 'trust_cert_file',
+                        textInputId: 'trust_cert_text',
+                        statusId: 'trust_cert_status',
+                        previewId: 'trust_cert_preview',
+                        onChange: function(pem) { trustCertPem = pem; }
+                });
+
                 document.querySelectorAll('input[name=trustmode]').forEach(function(radio) {
                         radio.addEventListener('change', function() {
                                 var custom = document.querySelector('input[name=trustmode]:checked').value === 'custom';
                                 document.getElementById('trust_custom_fields').style.display = custom ? '' : 'none';
-                                if (!custom) {
-                                        fileInput.value = '';
-                                        textInput.value = '';
-                                        clearPreview();
-                                        setStatus(null);
-                                        /* A validation already in flight must not be
-                                         * allowed to land and restore the certificate
-                                         * that was just cleared. */
-                                        invalidatePendingValidation();
-                                }
+                                if (!custom) { trustWidget.reset(); }
                         });
                 });
         })();
+
+        /* Advanced wizard's "Secure Boot signing & verification" section.
+         * Sign and verify are independent of each other: verify never
+         * touches key material at all, and is available regardless of
+         * whether the consent checkbox below has ever been ticked. */
+        (function() {
+                var signWidget = createCertUploadWidget({
+                        fileInputId: 'sign_cert_file',
+                        textInputId: 'sign_cert_text',
+                        statusId: 'sign_cert_status',
+                        previewId: 'sign_cert_preview',
+                        onChange: function(pem) { signCertPem = pem; }
+                });
+
+                var verifyWidget = createCertUploadWidget({
+                        fileInputId: 'verify_cert_file',
+                        textInputId: 'verify_cert_text',
+                        statusId: 'verify_cert_status',
+                        previewId: 'verify_cert_preview',
+                        onChange: function(pem) { verifyCertPem = pem; }
+                });
+
+                var consentCheckbox = document.getElementById('sign_consent');
+                consentCheckbox.addEventListener('change', function() {
+                        document.getElementById('sign_fields').style.display =
+                                consentCheckbox.checked ? '' : 'none';
+                        if (!consentCheckbox.checked) {
+                                document.getElementById('sign_key_file').value = '';
+                                signWidget.reset();
+                        }
+                });
+
+                function setVerifyResult(text, cssClass) {
+                        var el = document.getElementById('verify_result');
+                        if (!text) {
+                                el.style.display = 'none';
+                                el.className = 'verify-result';
+                                return;
+                        }
+                        el.textContent = text;
+                        el.className = 'verify-result' + ( cssClass ? ' ' + cssClass : '' );
+                        el.style.display = '';
+                }
+
+                document.getElementById('verify_button').addEventListener('click', function() {
+                        var fileInput = document.getElementById('verify_binary_file');
+                        var file = fileInput.files[0];
+                        if (!file) {
+                                setVerifyResult('Choose a binary to check first.', 'nomatch');
+                                return;
+                        }
+                        if (!verifyCertPem) {
+                                setVerifyResult('Provide and validate a certificate first.', 'nomatch');
+                                return;
+                        }
+                        setVerifyResult('Checking...', null);
+                        var formData = new FormData();
+                        formData.append('VERIFY_CERT', verifyCertPem);
+                        formData.append('VERIFY_BINARY', file);
+                        fetch('verify.fcgi', { method: 'POST', body: formData })
+                                .then(function(response) { return response.json(); })
+                                .then(function(data) {
+                                        if (data.error) {
+                                                setVerifyResult(data.error, 'nomatch');
+                                                return;
+                                        }
+                                        setVerifyResult(data.message, data.verified ? 'match' : 'nomatch');
+                                })
+                                .catch(function(err) {
+                                        setVerifyResult('Could not reach the verification service: ' + err.message, 'nomatch');
+                                });
+                });
+        })();
+
+        /* Adds SIGN_KEY/SIGN_CERT to an outgoing build FormData -- called
+         * from the #ipxeimage submit handler below, kept as a top-level
+         * function (rather than folded into the IIFE above) so it can be
+         * reached from there. Only ever appends a File object taken
+         * directly from the <input type=file> at the moment of submit,
+         * the same way the "HTTPS certificate trust" section's
+         * TRUST_CERT never routes a key through anything else; there is
+         * no equivalent long-lived "signKeyPem" variable to accidentally
+         * reuse or leak into an unrelated request.
+         *
+         * Returns an error string to show inline if signing was opted
+         * into but is incomplete, so an inconsistent state never
+         * surfaces as a build that silently went out unsigned instead of
+         * the requested signed build. Returns null when there is nothing
+         * to do (box unchecked) or everything needed is present. */
+        function appendSignFields(formData) {
+                var consentCheckbox = document.getElementById('sign_consent');
+                if (!consentCheckbox.checked) { return null; }
+                var keyFile = document.getElementById('sign_key_file').files[0];
+                if (!keyFile && !signCertPem) { return null; }
+                if (!keyFile || !signCertPem) {
+                        return 'Signing is enabled, but ' +
+                                (!keyFile ? 'no private key file has been selected' :
+                                        'the certificate has not been supplied and validated') +
+                                '. Provide both, or uncheck signing to build unsigned.';
+                }
+                formData.append('SIGN_KEY', keyFile);
+                formData.append('SIGN_CERT', signCertPem);
+                return null;
+        }
 
         // Check for the various File API support.
         if (!window.File && !window.FileReader) {

@@ -51,6 +51,15 @@ use Sub::Override;
 use strict;
 use warnings;
 
+# An outer bound on the whole request body, checked by CGI.pm itself
+# before any of this script's own field-level checks (TRUST_MAX_BYTES,
+# SIGN_KEY_MAX_BYTES, ...) get a chance to run. Sized for a real build
+# request: an embedded script, a trust certificate, and now optionally a
+# signing key and certificate -- not for uploading a binary, which this
+# script never receives as input.
+use constant REQUEST_MAX_BYTES => 8_000_000;
+$CGI::POST_MAX = REQUEST_MAX_BYTES;
+
 # Parse command line options
 my $verbosity = 2;
 my $cfgfile = "/opt/rom-o-matic/build.ini";
@@ -655,6 +664,124 @@ sub trust_cert {
 
 ###############################################################################
 #
+# Sign a just-built EFI binary for Secure Boot with an admin-supplied key.
+#
+# This is a convenience for a private or otherwise isolated deployment --
+# it assumes the caller already holds a key/certificate pair enrolled in
+# their own environment (a FOG server's --secure-boot-key, for instance)
+# and just wants iPXE signed with it. Nothing here generates, stores, or
+# enrols a key; see public/verify.fcgi for the certificate-only side of
+# this, kept in a separate file specifically so key handling and "no key
+# involved at all" checking never share a code path.
+#
+# Modelled on FOG's own fog-sign-kernel/_resignKernels: sbsign, then
+# sbverify the result before trusting it, since an exit status alone is
+# not evidence (see FOGProject/fogproject docs/adr/0008 -- cert-to-efi-
+# sig-list's silent-success failure mode is the same class of mistake:
+# report success without having actually checked the thing that matters).
+#
+
+use constant SIGN_KEY_MAX_BYTES  => 16384; # 16 KiB -- a private key is small;
+                                            # this is not a bundle format
+use constant SIGN_CERT_MAX_BYTES => 65536; # keep in sync with TRUST_MAX_BYTES
+use constant SIGN_TIMEOUT_SECS   => 20;    # sbsign; verify's own check below
+                                            # gets the shorter sbverify budget
+
+sub sign_binary {
+  my $cgi = shift;
+  my $keyContent = shift;
+  my $certPem = shift;
+  my $bindir = shift;
+  my $infile = shift;
+
+  return unless ( defined $keyContent && length $keyContent ) ||
+                ( defined $certPem && length $certPem );
+
+  # SIGN_KEY/SIGN_CERT must never travel in a URL, same reasoning as
+  # TRUST_CERT -- this endpoint is directly reachable on its own, so
+  # enforce POST server-side rather than relying on the frontend already
+  # being well-behaved.
+  die "SIGN_KEY/SIGN_CERT must be submitted via POST, not ".
+      ( $cgi->request_method() // "GET" )."\n"
+      unless uc ( $cgi->request_method() // "" ) eq "POST";
+
+  die "SIGN_KEY and SIGN_CERT must both be supplied to sign a binary\n"
+      unless ( defined $keyContent && length $keyContent ) &&
+             ( defined $certPem && length $certPem );
+
+  die "SIGN_KEY does not look like a private key\n" unless
+      $keyContent =~ /-----BEGIN (RSA |EC |DSA |ENCRYPTED )?PRIVATE KEY-----/;
+
+  # sbsign only understands PE/COFF (EFI) images -- signing a BIOS-format
+  # output would either fail confusingly or, worse, appear to succeed
+  # while producing something no firmware will ever check. Reject
+  # outright rather than silently skipping: a client-side gating bug
+  # should surface here, not hand back an unsigned binary the requester
+  # believes is signed.
+  die "Secure Boot signing only applies to EFI binaries (BINDIR ending ".
+      "in \"-efi\"), not \"".$bindir."\"\n"
+      unless $bindir =~ /-efi$/;
+
+  die "Certificate data exceeds the ".SIGN_CERT_MAX_BYTES()."-byte limit\n"
+      if length ( $certPem ) > SIGN_CERT_MAX_BYTES;
+  my @certBlocks = ( $certPem =~
+		      /(-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----)/sg );
+  die "No PEM certificate block found in SIGN_CERT\n" unless @certBlocks;
+  die "Only a single certificate is supported for signing; ".
+      scalar ( @certBlocks )." were supplied\n" if @certBlocks > 1;
+  # Defence in depth: SIGN_CERT is meant to be a public certificate,
+  # already normalised by certificate.php client-side. Confirm it does
+  # not itself carry key material before it ever reaches a temp file --
+  # mirrors trust_cert()'s identical guard on the same field shape.
+  foreach my $marker ( "-----BEGIN PRIVATE KEY-----",
+			"-----BEGIN RSA PRIVATE KEY-----",
+			"-----BEGIN EC PRIVATE KEY-----",
+			"-----BEGIN ENCRYPTED PRIVATE KEY-----",
+			"-----BEGIN DSA PRIVATE KEY-----" ) {
+    die "SIGN_CERT contains private key material, which is not accepted ".
+	"in that field\n" if index ( $certPem, $marker ) >= 0;
+  }
+
+  # Dedicated, per-build temporary directory -- CLEANUP removes the key
+  # copy below the moment this request ends, success or failure, the same
+  # guarantee trust_cert()'s and embed()'s temp dirs already give their
+  # contents.
+  my $signdirfh = File::Temp->newdir ( "ipxe-sign-XXXXXX", DIR => $tmpdir,
+					CLEANUP => ! $keep );
+  my $signdir = $signdirfh->dirname;
+
+  # Written under our own app-generated path with an explicit 0600 mode,
+  # rather than left wherever CGI.pm staged its own copy of the upload.
+  my $keyfile = catfile ( $signdir, "sign.key" );
+  open my $keyoutfh, ">", $keyfile or die "Could not stage signing key: $!\n";
+  print $keyoutfh $keyContent;
+  close $keyoutfh;
+  chmod 0600, $keyfile or die "Could not set signing key permissions: $!\n";
+
+  # sbsign rejects DER outright (PEM_read_bio_X509), so normalise the same
+  # way trust_cert() would if it needed to -- try PEM first, fall back to
+  # DER, and give up with a clear error rather than a cryptic OpenSSL one.
+  my $certfile = catfile ( $signdir, "sign.pem" );
+  open my $certfh, ">", $certfile or die "Could not stage certificate: $!\n";
+  print $certfh $certBlocks[0];
+  close $certfh;
+  systemx ( "openssl", "x509", "-in", $certfile, "-inform", "pem", "-noout" );
+
+  my $signedfile = catfile ( $signdir, "signed.efi" );
+  systemx ( "timeout", SIGN_TIMEOUT_SECS(), "sbsign", "--key", $keyfile,
+	    "--cert", $certfile, "--output", $signedfile, $infile );
+
+  # An exit status alone is not evidence (see the module comment above) --
+  # confirm the signature sbsign just wrote actually verifies against the
+  # same certificate before this is ever handed back as "signed".
+  systemx ( "timeout", SIGN_TIMEOUT_SECS(), "sbverify", "--cert", $certfile,
+	    $signedfile );
+
+  return ( $signedfile, $signdirfh );
+}
+
+###############################################################################
+#
 # Handle build request
 #
 
@@ -664,6 +791,31 @@ sub build {
   # Parse URI
   my $path_info = $cgi->path_info();
   my $params = $cgi->Vars;
+
+  # Read before deleting, both fields: CGI::Vars() returns a hash tied to
+  # the live CGI object, not an independent snapshot, so deleting a key
+  # from %$params deletes that param from $cgi itself -- confirmed the
+  # hard way, deleting SIGN_KEY first and then calling $cgi->param() for
+  # it a line later returned undef, correctly, because there was nothing
+  # left to return. SIGN_CERT already followed this order by chance
+  # (capturing delete's return value in one step); SIGN_KEY needs it done
+  # deliberately, since resolving it takes a couple of extra steps
+  # (tmpFileName, then reading the file) that must all happen first.
+  my $keyUpload = $cgi->param ( "SIGN_KEY" );
+  my $signKeyContent;
+  if ( $keyUpload ) {
+    my $keyPath = $cgi->tmpFileName ( $keyUpload );
+    if ( $keyPath && -f $keyPath ) {
+      die "Signing key exceeds the ".SIGN_KEY_MAX_BYTES()."-byte limit\n"
+	  if ( -s $keyPath ) > SIGN_KEY_MAX_BYTES;
+      open my $keyfh, "<", $keyPath or die "Could not read signing key: $!\n";
+      $signKeyContent = do { local $/; <$keyfh> };
+      close $keyfh;
+    }
+  }
+  my $signCertPem = delete $params->{SIGN_CERT};
+  delete $params->{SIGN_KEY};
+
   if ( $verbosity > 1 ) {
     warn "Path: ".$path_info."\n";
     warn "Parameters: \n";
@@ -671,7 +823,7 @@ sub build {
       # Certificate/key material must never reach logs or the client-
       # visible debug log on failure. Confirm the field was present
       # without echoing its content.
-      if ( $key eq "TRUST_CERT" ) {
+      if ( $key eq "TRUST_CERT" || $key eq "SIGN_CERT" || $key eq "SIGN_KEY" ) {
 	warn "  ".$key." = <".length ( $params->{$key} )." bytes, redacted>\n";
 	next;
       }
@@ -770,6 +922,16 @@ sub build {
 
   # Return target
   my $outfile = catfile ( $worktree, "src", $bindir, $binary );
+
+  # Sign for Secure Boot, if requested. Substitutes the signed copy for
+  # $outfile so everything below -- opening it, returning it, the
+  # Content-Length the client sees -- is unaware anything happened here;
+  # $signdirfh is kept alive in this scope purely so its CLEANUP does not
+  # fire (removing the signed copy along with the key that produced it)
+  # until this request is entirely done with the file.
+  ( my $signedfile, my $signdirfh ) = sign_binary ( $cgi, $signKeyContent, $signCertPem, $bindir, $outfile );
+  $outfile = $signedfile if $signedfile;
+
   warn "Returning final target ".$outfile."...\n" if $verbosity > 1;
   open my $outfh, "<", $outfile
       or die "Could not open ".$outfile.": $!\n";

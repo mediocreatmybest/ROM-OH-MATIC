@@ -193,6 +193,28 @@ h3 span {
 	margin-bottom: 2px;
 }
 
+/* The verify tool's result banner -- green for a matching signature, the
+ * same red .error already uses for everything else that means "no". */
+.verify-result {
+	margin-top: 8px;
+	padding: 6px 10px;
+	border-radius: 4px;
+	font-size: 13px;
+	max-width: 600px;
+}
+
+.verify-result.match {
+	background-color: #d4edda;
+	border: 1px solid #28a745;
+	color: #155724;
+}
+
+.verify-result.nomatch {
+	background-color: #f8d7da;
+	border: 1px solid #dc3545;
+	color: #721c24;
+}
+
 .fetch-status {
 	font-size: 14px;
 	font-style: italic;
@@ -350,7 +372,10 @@ h3 span {
 	color: #333;
 }
 
-#trust_cert_preview {
+/* Shared by every certificate-upload widget's preview -- trust, sign,
+ * and verify all render the same cert-block/cert-field-name/
+ * cert-fingerprint structure (see ui.js's createCertUploadWidget). */
+.cert-preview {
 	margin-top: 8px;
 	padding: 8px 10px;
 	background: #fff;

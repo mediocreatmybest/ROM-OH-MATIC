@@ -93,6 +93,13 @@ apt-get -yq install \
     syslinux \
     isolinux
 
+# sbsigntool: sbsign/sbverify, for optionally signing a built EFI binary for
+# Secure Boot with an admin-supplied key, and for verifying an arbitrary EFI
+# binary against a public certificate. Neither feature generates or stores
+# any key -- see public/build.fcgi's sign_binary() and public/verify.fcgi.
+apt-get -yq install \
+    sbsigntool
+
 # configure fast-cgi
 cat << EOF > /etc/apache2/mods-enabled/fcgid.conf
 <IfModule mod_fcgid.c>
@@ -100,7 +107,14 @@ cat << EOF > /etc/apache2/mods-enabled/fcgid.conf
     FcgidIdleTimeout 3600
     FcgidBusyTimeout 300
     FcgidIOTimeout 360
-    FcgidMaxRequestLen 15728640
+    # Raised from the previous 15 MiB to comfortably clear verify.fcgi's own
+    # 34 MB request cap (32 MiB binary + certificate + multipart overhead) --
+    # otherwise mod_fcgid rejects an oversized-but-under-the-app-limit
+    # upload itself, as a generic 500 page, before verify.fcgi's own check
+    # ever runs to explain why. This is a ceiling, not a target: build.fcgi's
+    # own per-field limits (TRUST_MAX_BYTES etc.) are unchanged and are what
+    # actually bounds a normal build request.
+    FcgidMaxRequestLen 40000000
     <IfModule mod_mime.c>
         AddHandler fcgid-script .fcgi
     </IfModule>
