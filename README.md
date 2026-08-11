@@ -46,7 +46,7 @@ The Docker image is automatically built and published from `master`. Every build
 | Certificate trust build test      | ✅                                         |
 | Secure Boot sign and verify test  | ✅                                         |
 | Published platform                | `linux/amd64`                              |
-| Current container base            | Ubuntu 24.04 LTS                           |
+| Container bases                   | Ubuntu 24.04 LTS (default), Alpine 3.20    |
 
 A green build badge means the image built, started successfully, responded over HTTP, and produced a working iPXE artefact, before being published.
 
@@ -66,6 +66,12 @@ Current tags are:
 
   ```bash
   docker pull mediocreatmybest/ipxe-buildweb:staging
+  ```
+
+- `latest-alpine` / `<full-git-commit-sha>-alpine` / `sha-<short-commit>-alpine` / `staging-alpine`: the same application, built on Alpine 3.20 instead of Ubuntu, under the same tests and pass/fail gate as their non-suffixed counterparts. Smaller image, otherwise equivalent -- same scripts, same feature set:
+
+  ```bash
+  docker pull mediocreatmybest/ipxe-buildweb:latest-alpine
   ```
 
 The published image currently targets `linux/amd64` only.
