@@ -117,37 +117,35 @@ jobs:
       - name: Smoke-test iPXE builds
         run: bash scripts/ci/smoke-builds.sh
 
-      # Secure Boot signing/verification smoke test is disabled for now --
-      # verify.fcgi's first request in a fresh container has failed on
-      # every staging run so far with no error output from either Perl
-      # script, traced (across several rounds of fixes and diagnostics,
-      # see git log for scripts/ci/smoke-signing.sh) to something dying in
-      # mod_fcgid's own process-spawn for that script, before Perl ever
-      # runs -- not reproducible locally, not resource exhaustion (a
-      # dedicated diagnostic step confirmed the runner sits at ~0.2%
-      # memory when it happens). Re-enable by uncommenting the three steps
-      # below once that's actually understood, rather than continuing to
-      # spend CI cycles on blind fixes.
-      #
-      # - name: Wait for background cache compression to settle
-      #   run: |
-      #     for i in $(seq 1 30); do
-      #       if ! docker exec rom-o-matic-smoke pgrep -x gzip >/dev/null 2>&1; then
-      #         echo "No gzip running after ${i}s"
-      #         exit 0
-      #       fi
-      #       sleep 1
-      #     done
-      #     echo "gzip still running after 30s -- continuing anyway"
-      #
-      # - name: Install sbsigntool
-      #   run: sudo apt-get update && sudo apt-get install --yes sbsigntool
-      #
-      # - name: Smoke-test Secure Boot signing and verification
-      #   run: bash scripts/ci/smoke-signing.sh
+      # smoke-signing.sh signs the same bindir/revision the certificate-
+      # trust build above just built. build.fcgi's own cache write finishes
+      # in a detached background process after the HTTP response already
+      # returned (see start_gzip() in build.fcgi); firing the next request
+      # before that settles found no valid cache tag yet and triggered a
+      # full second compile instead of a quick cache hit.
+      - name: Wait for background cache compression to settle
+        run: |
+          for i in $(seq 1 30); do
+            if ! docker exec rom-o-matic-smoke pgrep -x gzip >/dev/null 2>&1; then
+              echo "No gzip running after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "gzip still running after 30s -- continuing anyway"
 
-      # Everything above (this shared container) runs with the certificate
-      # features switched on.
+      # sbverify, used to independently re-check a signed binary from
+      # outside the container that produced it (see smoke-signing.sh) --
+      # the container has its own copy, but this proves the returned file
+      # verifies on its own merits, not just according to the code under
+      # test.
+      - name: Install sbsigntool
+        run: sudo apt-get update && sudo apt-get install --yes sbsigntool
+
+      - name: Smoke-test Secure Boot signing and verification
+        run: bash scripts/ci/smoke-signing.sh
+
+      # Everything above runs with the certificate features switched on.
       # This covers what a plain `docker run` of the published image
       # actually does -- the default nobody has to opt into, and therefore
       # the one worth proving stays off.

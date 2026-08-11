@@ -96,9 +96,21 @@ ONBUILD RUN apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 # Set as execute with +x. options.php execs parseheaders.py directly, so it
 # needs the bit too -- don't rely on the mode surviving a checkout, since a
 # Windows clone with core.fileMode=false won't carry it.
+#
+# The .fcgi scripts are the case that proved the point: mod_fcgid execs them
+# directly, so one committed without the bit set (verify.fcgi, added from a
+# Windows working tree where core.fileMode=false hid the difference) failed
+# on every single request in CI while working perfectly in every local test
+# -- because `docker cp` copies the working tree's real mode, and only a
+# fresh `git clone` reproduces what git actually recorded. The failure is
+# silent and remote from its cause: the forked child dies before exec'ing
+# perl, so neither Apache nor Perl logs anything, and Apache answers with
+# its own generic 500. Globbed rather than named individually so a future
+# .fcgi is covered automatically.
 RUN chmod +x /opt/rom-o-matic/start.sh
 RUN chmod +x /opt/rom-o-matic/update.sh
 RUN chmod +x /opt/rom-o-matic/scripts/parseheaders.py
+RUN chmod +x /opt/rom-o-matic/public/*.fcgi
 
 # Allow iPXE submodule to be updated due to change in ownership with submodules
 RUN git config --global --add safe.directory /opt/rom-o-matic/ipxe

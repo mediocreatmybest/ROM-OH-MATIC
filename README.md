@@ -44,11 +44,11 @@ The Docker image is automatically built and published from `master`. Every build
 | HTTP response test                | ✅                                         |
 | iPXE artefact generation test     | ✅                                         |
 | Certificate trust build test      | ✅                                         |
-| Secure Boot sign and verify test  | ⏸️ temporarily disabled, see below         |
+| Secure Boot sign and verify test  | ✅                                         |
 | Published platform                | `linux/amd64`                              |
 | Current container base            | Ubuntu 24.04 LTS                           |
 
-A green build badge means the image built, started successfully, responded over HTTP, and produced a working iPXE artefact, before being published. The Secure Boot signing/verification test is temporarily disabled in CI -- `verify.fcgi`'s first request in a fresh container has been failing intermittently there with no error output from either the container or the host, not reproducible locally, and not resource exhaustion (confirmed via a diagnostic step). It's commented out in `.github/workflows/docker.yml` pending further investigation, not removed.
+A green build badge means the image built, started successfully, responded over HTTP, and produced a working iPXE artefact, before being published.
 
 ## Docker image
 
