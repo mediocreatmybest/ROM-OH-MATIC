@@ -19,7 +19,10 @@ diagnostic_snapshot() {
   echo "-- resource snapshot: ${label} --"
   docker stats --no-stream "$container" 2>&1 || true
   free -h 2>&1 || true
-  docker exec "$container" sh -c 'ps aux --sort=-rss | head -15' 2>&1 || true
+  # --sort is a GNU procps flag; Alpine's container only has busybox ps,
+  # which doesn't understand it (or report RSS at all) -- fall back to a
+  # plain listing there rather than let the whole diagnostic step error out.
+  docker exec "$container" sh -c 'ps aux --sort=-rss 2>/dev/null | head -15 || ps aux | head -15' 2>&1 || true
 }
 
 # Two distinct, disposable key/cert pairs: "a" signs; "b" exists purely to
@@ -116,6 +119,10 @@ echo "$response" | grep -q '"verified":true' || {
   # parent -- worth knowing whether that parent is Apache itself (a
   # worker crash, upstream of anything build.fcgi/verify.fcgi could ever
   # log) rather than the FastCGI child process.
+  #
+  # Relies on procps-style `ps aux` having a STAT column at field 8;
+  # Alpine's busybox `ps` reports no STAT column at all, so this always
+  # comes back empty there rather than a genuine "no zombies" finding.
   echo "-- zombie/defunct processes in the container --"
   zombies=$(docker exec "$container" sh -c 'ps aux' 2>&1 | awk '$8 ~ /^Z/' || true)
   if [ -n "$zombies" ]; then
