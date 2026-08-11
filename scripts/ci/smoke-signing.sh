@@ -8,6 +8,19 @@ set -euo pipefail
 
 build_url=http://localhost:8080/build.fcgi
 verify_url=http://localhost:8080/verify.fcgi
+container=rom-o-matic-smoke
+
+# Snapshots container and host memory/process state. Named for when it is
+# called, not what it found -- a step failing here must never abort the
+# script (the diagnostics matter most exactly when something is already
+# wrong), so every command is best-effort.
+diagnostic_snapshot() {
+  local label="$1"
+  echo "-- resource snapshot: ${label} --"
+  docker stats --no-stream "$container" 2>&1 || true
+  free -h 2>&1 || true
+  docker exec "$container" sh -c 'ps aux --sort=-rss | head -15' 2>&1 || true
+}
 
 # Two distinct, disposable key/cert pairs: "a" signs; "b" exists purely to
 # be the wrong certificate for the mismatch case below.
@@ -64,6 +77,8 @@ fi
 echo "== Independently verifying the signed binary with sbverify =="
 sbverify --cert /tmp/sign-a.pem /tmp/signed.efi
 
+diagnostic_snapshot "right before verify.fcgi's first-ever request in this container"
+
 echo "== Verifying the signed binary through verify.fcgi (matching cert) =="
 response=$(curl -s --max-time 30 \
   -F 'VERIFY_CERT=</tmp/sign-a.pem' \
@@ -72,6 +87,11 @@ response=$(curl -s --max-time 30 \
 echo "Response: ${response}"
 echo "$response" | grep -q '"verified":true' || {
   echo "verify.fcgi did not report a match for the correct certificate"
+  diagnostic_snapshot "immediately after the failed request above"
+  echo "-- container logs --"
+  docker logs "$container" 2>&1 | tail -40 || true
+  echo "-- host kernel log: OOM/kill activity --"
+  sudo dmesg 2>&1 | grep -iE 'killed process|out of memory|oom' | tail -20 || echo "(no matching dmesg lines, or dmesg unavailable)"
   exit 1
 }
 echo "$response" | grep -q '"reason":"match"' || {
