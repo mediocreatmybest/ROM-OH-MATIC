@@ -243,10 +243,29 @@ while ( 1 ) {
   $request->Attach();
   $request->LastCall();
 
+  # CGI->new() parses the whole request -- including the uploaded binary --
+  # eagerly, before verify() ever runs, so it is just as able to die on
+  # malformed or adversarial input as anything inside verify() itself. Not
+  # wrapping it left a real gap in this file's own stated guarantee ("never
+  # dies past this point"): an exception here would propagate straight out
+  # of this forked child with no FCGI response ever sent, which mod_fcgid
+  # can only see as the process dying and answers with its own generic
+  # error page -- exactly the kind of opaque failure this endpoint exists
+  # to avoid for the caller.
   my $cgi;
-  {
+  eval {
     local *STDIN = $fcgiin;
     $cgi = CGI->new();
+  };
+  if ( $@ ) {
+    warn "verify.fcgi: could not parse the request: $@";
+    # CGI->new() failed, so $cgi never got assigned -- respond() still
+    # needs a working CGI object to build response headers with, which an
+    # empty one (no input to parse, so nothing left to fail on) provides.
+    respond ( $fcgiout, CGI->new ( "" ), "400 Bad Request",
+	      { verified => JSON::PP::false, reason => "error",
+		message => "Could not read the request." } );
+    exit ( 0 );
   }
 
   undef $SIG{CHLD};

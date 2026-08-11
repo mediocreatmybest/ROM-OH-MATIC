@@ -1034,8 +1034,16 @@ while ( 1 ) {
   $request->LastCall();
 
   # Create CGI object
+  #
+  # CGI->new() parses the whole request eagerly -- including any uploaded
+  # SIGN_KEY -- so it can die on malformed input just as easily as
+  # anything inside build(). Left unguarded, that exception propagates
+  # straight out of this forked child with no FCGI response ever sent, so
+  # mod_fcgid answers with its own generic error page instead of this
+  # script's own "Build failed:" text. An empty CGI object still works for
+  # sending that response, since there is nothing left in it to fail on.
   my $cgi;
-  {
+  eval {
     # CGI hardcodes the use of STDIN, relying upon the I/O layer
     # mangling used by FCGI to change the definition of STDIN.  Since
     # we need to be able to close and reopen the original STDIN, we
@@ -1043,6 +1051,15 @@ while ( 1 ) {
     # therefore temporarily redefine STDIN to keep CGI happy.
     local *STDIN = $fcgiin;
     $cgi = CGI->new();
+  };
+  if ( $@ ) {
+    my $parse_error = $@;
+    warn "build.fcgi: could not parse the request: ".$parse_error;
+    $cgi = CGI->new ( "" );
+    print $fcgiout $cgi->header ( -status => "500 Internal server error",
+				  -type => "text/plain" );
+    print $fcgiout "Build failed:\n\n".$parse_error."\n\n";
+    exit ( 0 );
   }
 
   # Allow system() et al to work normally
