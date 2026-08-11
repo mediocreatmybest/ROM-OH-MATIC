@@ -35,6 +35,12 @@ app -- don't put credentials or internal-only URLs in a preset. A
 certificate is never carried in one; it is per-site input supplied
 through the wizard's own certificate-trust section.
 
+A deployment run with `UI_REMOVE_CERT_FEATURE=true` has no
+certificate-trust section at all. A preset setting
+`requires_trust_cert` still applies its options there, but reports that
+custom trust is unavailable rather than silently producing a build that
+trusts nothing extra.
+
 ## Format
 
 ```jsonc
