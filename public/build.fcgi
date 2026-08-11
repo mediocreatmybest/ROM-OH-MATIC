@@ -46,7 +46,7 @@ use IO::File;
 use IO::Seekable;
 use IO::Compress::Gzip qw ( gzip $GzipError );
 use IPC::System::Simple qw ( systemx capturex );
-use POSIX qw ( nice strftime );
+use POSIX qw ( _exit nice strftime );
 use Sub::Override;
 use strict;
 use warnings;
@@ -443,7 +443,30 @@ sub start_gzip {
   cache_unlock();
 
   # Exit child
-  exit ( 0 );
+  #
+  # _exit(), not exit(): this process is a fork of the one still serving
+  # the request, so it shares that request's FCGI object. A normal exit()
+  # runs global destruction, and FCGI::DESTROY then *finishes the parent's
+  # request* -- from here, while the parent is still compiling. mod_fcgid
+  # sees the response stream end without headers, answers the client with
+  # its own generic 500, and the build goes on to complete perfectly into
+  # a connection nobody is listening to any more.
+  #
+  # Whoever finishes first wins, so this is a race and not a reliable
+  # failure. Compression usually finishes long after the response is
+  # already sent, which is why it went unnoticed; it surfaced on the
+  # slower Alpine build, where the final `make` after a cache-populating
+  # build still had ~50s to run when gzip finished. The main loop guards
+  # the same hazard for its own request children with a FCGI::DESTROY
+  # override (see the comment there); this is that hazard's other fork.
+  #
+  # Everything this child needs to clean up is done explicitly above
+  # (cache_unlock, the rename/unlink, undef $gzfh), so nothing of value
+  # is lost by skipping global destruction. Buffers are flushed by hand
+  # first, since _exit() will not do it.
+  STDOUT->flush();
+  STDERR->flush();
+  _exit ( 0 );
 }
 
 ###############################################################################
