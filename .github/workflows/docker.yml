@@ -88,18 +88,69 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # UI_ENABLE_CERT_FEATURE is off in the image by default, so the
+      # certificate-trust and Secure Boot tests below would have nothing to
+      # exercise without it. The shipped default is covered separately, by
+      # the default-off step further down.
       - name: Start container
         run: |
           docker run --detach \
             --publish 8080:80 \
+            --env UI_ENABLE_CERT_FEATURE=true \
             --name rom-o-matic-smoke \
             ${{ env.IMAGE_NAME }}:test
+
+      # build.ini ships concurrency=16 for `make -jN`, sized for a real
+      # deployment box rather than a shared CI runner. Left at 16 here, a
+      # string of failures across this job -- always "the FastCGI worker
+      # died mid-request with no error text", never the same request twice
+      # (verify.fcgi's first call, then separately a build.fcgi call) --
+      # traced back to oversubscribed parallel compiles competing for
+      # memory. Overridden only inside this disposable container, not the
+      # image itself.
+      - name: Reduce build concurrency for this runner
+        run: docker exec rom-o-matic-smoke sed -i 's/^\( *\)concurrency=.*/\1concurrency=2/' /opt/rom-o-matic/build.ini
 
       - name: Smoke-test HTTP endpoints
         run: bash scripts/ci/smoke-endpoints.sh
 
       - name: Smoke-test iPXE builds
         run: bash scripts/ci/smoke-builds.sh
+
+      # smoke-signing.sh signs the same bindir/revision the certificate-
+      # trust build above just built. build.fcgi's own cache write finishes
+      # in a detached background process after the HTTP response already
+      # returned (see start_gzip() in build.fcgi); firing the next request
+      # before that settles found no valid cache tag yet and triggered a
+      # full second compile instead of a quick cache hit.
+      - name: Wait for background cache compression to settle
+        run: |
+          for i in $(seq 1 30); do
+            if ! docker exec rom-o-matic-smoke pgrep -x gzip >/dev/null 2>&1; then
+              echo "No gzip running after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "gzip still running after 30s -- continuing anyway"
+
+      # sbverify, used to independently re-check a signed binary from
+      # outside the container that produced it (see smoke-signing.sh) --
+      # the container has its own copy, but this proves the returned file
+      # verifies on its own merits, not just according to the code under
+      # test.
+      - name: Install sbsigntool
+        run: sudo apt-get update && sudo apt-get install --yes sbsigntool
+
+      - name: Smoke-test Secure Boot signing and verification
+        run: bash scripts/ci/smoke-signing.sh
+
+      # Everything above runs with the certificate features switched on.
+      # This covers what a plain `docker run` of the published image
+      # actually does -- the default nobody has to opt into, and therefore
+      # the one worth proving stays off.
+      - name: Smoke-test the default-off certificate state
+        run: bash scripts/ci/smoke-cert-disabled.sh
 
       - name: Print container logs on failure
         if: failure()
@@ -113,11 +164,13 @@ jobs:
     name: Publish image
     runs-on: ubuntu-latest
     needs: test
-    # Only master/main pushes can reach login/push -- dev and staging run
-    # the test job above and stop there, same as pull requests and manual
+    # master/main and staging pushes can reach login/push; dev runs the
+    # test job above and stops there, same as pull requests and manual
     # dispatch runs. Drop the master condition here once it's actually
-    # renamed to main.
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+    # renamed to main. Which tags actually get written is decided per-tag
+    # in the metadata step below -- staging never touches `latest` or the
+    # SHA tags, and master/main never writes `staging`.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging')
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -137,15 +190,23 @@ jobs:
       # list are generated here rather than hard-coded. `latest` and the
       # full-SHA tag are kept exactly as before (README documents both);
       # sha-<short> is added as a friendlier addition, not a replacement.
+      #
+      # `staging` is a separate, always-moving tag for exactly this job's
+      # own staging pushes -- `docker pull ...:staging` gets something
+      # runnable to check before merging, without needing a local build or
+      # touching `latest`. `enable=` keeps the two tag sets mutually
+      # exclusive: a staging push never writes `latest`/the SHA tags, and
+      # a master/main push never writes `staging`.
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest
-            type=raw,value=${{ github.sha }}
-            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ github.sha }},enable=${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
+            type=raw,value=staging,enable=${{ github.ref == 'refs/heads/staging' }}
           labels: |
             org.opencontainers.image.title=ROM-OH-MATIC
             org.opencontainers.image.description=Maintained fork of a prebuilt-binary web interface for building iPXE images

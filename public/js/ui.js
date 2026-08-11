@@ -29,6 +29,13 @@ onReady(function() {
          * this. */
         var trustCertPem = null;
 
+        /* Validated PEM for the "Secure Boot signing & verification"
+         * section. Note there is deliberately no "signKeyPem" alongside
+         * these: the private key is read from its file input at submit
+         * time and never stored here. */
+        var signCertPem = null;
+        var verifyCertPem = null;
+
         /* Build an <option>, safely -- via textContent/property assignment
          * rather than string concatenation, so a value containing HTML
          * special characters (e.g. an iPXE header comment with a stray "<"
@@ -593,8 +600,18 @@ onReady(function() {
                                 document.getElementById('embed').value = preset.embed;
                         }
 
+                        /* Absent unless UI_ENABLE_CERT_FEATURE is on -- a
+                         * preset asking for a certificate has nowhere to
+                         * send the user on a deployment without that
+                         * feature, so this note is the only trace of it. */
                         if (preset.requires_trust_cert) {
-                                document.getElementById('trust_custom').click();
+                                var trustCustomRadio = document.getElementById('trust_custom');
+                                if (trustCustomRadio) {
+                                        trustCustomRadio.click();
+                                        openFold('trust_fold');
+                                } else {
+                                        notes.push('this preset asks for a custom trust certificate, but certificate trust is not available on this deployment');
+                                }
                         }
 
                         var summary = 'Applied ' + applied + ' option' + (applied === 1 ? '' : 's') + ' from "' + preset.name + '".';
@@ -733,10 +750,25 @@ onReady(function() {
                 });
         });
 
-        /* Reset from on reload */
+        /* Undo the browser's own form-state restoration on a soft reload, so
+         * the page always starts from the markup's defaults rather than from
+         * whatever was on screen before F5. Firefox restores far more than
+         * Chromium does here, which is why this is browser-visible: the
+         * fields below all looked correct in Chrome and stale in Firefox.
+         *
+         * The embedded script and trust mode matter beyond looking untidy,
+         * because capturePresetBaseline() reads them as "what the user had
+         * before any preset touched this form". A value the browser put back
+         * is not that, but is indistinguishable from it by the time the
+         * baseline is taken -- so selecting a preset and then returning to
+         * None restored a script the user never typed in this page load. */
         document.querySelector('input[name=wizardtype]').checked = true;
         document.getElementById('outputformatstd').selectedIndex = 0;
         document.getElementById('outputformatadv').selectedIndex = 0;
+        document.getElementById('embed').value = '';
+        /* Absent unless UI_ENABLE_CERT_FEATURE is on. */
+        var trustStandardRadio = document.getElementById('trust_standard');
+        if (trustStandardRadio) { trustStandardRadio.checked = true; }
 
         document.getElementById('formtype').addEventListener('change', function() {
                 var wizardtype = document.querySelector('input[name=wizardtype]:checked').value;
@@ -774,6 +806,26 @@ onReady(function() {
                 }
         });
 
+        /* Expand a collapsed section. The certificate sections start folded
+         * away, so anything that draws attention to something inside one --
+         * a validation error, or a preset switching trust mode on the user's
+         * behalf -- has to open it, or the message is written to an element
+         * the user cannot see and the form just appears to do nothing. */
+        function openFold(id) {
+                var fold = document.getElementById(id);
+                if (fold) { fold.open = true; }
+        }
+
+        /* Sets display on an element that may not exist at all --
+         * UI_ENABLE_CERT_FEATURE leaves the trust and Secure Boot sections out
+         * of the page entirely, rather than just hiding them, so every
+         * display toggle that touches one of those has to tolerate it being
+         * absent from the DOM. */
+        function setDisplayIfPresent(id, value) {
+                var el = document.getElementById(id);
+                if (el) { el.style.display = value; }
+        }
+
         /* BIOS (bindir exactly "bin", not "bin-i386-efi"/"bin-x86_64-efi")
          * builds don't compile in HTTPS at all -- a long-standing iPXE
          * decision, not a bug -- so certificate trust has no effect there.
@@ -782,19 +834,35 @@ onReady(function() {
          * doesn't apply. */
         function updateTrustBiosWarning(outputformat) {
                 var bindir = outputformat.split('/')[0];
-                document.getElementById('trust_bios_warning').style.display =
-                        (bindir === 'bin') ? 'block' : 'none';
+                setDisplayIfPresent('trust_bios_warning', (bindir === 'bin') ? 'block' : 'none');
+        }
+
+        /* Secure Boot signing applies to EFI boot applications only.
+         * Hidden rather than warned about (unlike the trust section
+         * above): for other formats there is nothing to explain, the
+         * option simply does not exist.
+         *
+         * The *rom outputs are excluded despite living in an -efi
+         * bindir -- a flashable option ROM is not what firmware checks a
+         * Secure Boot signature on. build.fcgi's sign_binary() rejects
+         * them server-side too. */
+        function updateSecureBootVisibility(outputformat) {
+                var bindir = outputformat.split('/')[0];
+                var binary = outputformat.split('/')[1] || '';
+                var signable = /-efi$/.test(bindir) && !/rom$/.test(binary);
+                setDisplayIfPresent('secureboot', signable ? 'block' : 'none');
         }
 
         document.getElementById('outputformatadv').addEventListener('change', function() {
                 var outputformat = document.getElementById('outputformatadv').value;
                 updateTrustBiosWarning(outputformat);
+                updateSecureBootVisibility(outputformat);
                 if (outputformat.indexOf("rom", outputformat.length - 3) !== -1)
                 {	/* If a ROM */
                         document.getElementById('rom').style.display = 'inline';
                         document.getElementById('iface').style.display = 'none';
                         document.getElementById('config').style.display = 'none';
-                        document.getElementById('trust').style.display = 'inline';
+                        setDisplayIfPresent('trust', 'inline');
                         document.getElementById('embedded').style.display = 'inline';
                         document.getElementById('debug').style.display = 'none';
                         document.getElementById('gitversion').style.display = 'inline';
@@ -805,7 +873,7 @@ onReady(function() {
                         document.getElementById('rom').style.display = 'none';
                         document.getElementById('iface').style.display = 'none';
                         document.getElementById('config').style.display = 'none';
-                        document.getElementById('trust').style.display = 'none';
+                        setDisplayIfPresent('trust', 'none');
                         document.getElementById('embedded').style.display = 'none';
                         document.getElementById('debug').style.display = 'none';
                         document.getElementById('gitversion').style.display = 'none';
@@ -816,7 +884,7 @@ onReady(function() {
                         document.getElementById('rom').style.display = 'none';
                         document.getElementById('iface').style.display = 'inline';
                         document.getElementById('config').style.display = 'inline';
-                        document.getElementById('trust').style.display = 'inline';
+                        setDisplayIfPresent('trust', 'inline');
                         document.getElementById('embedded').style.display = 'inline';
                         document.getElementById('debug').style.display = 'inline';
                         document.getElementById('gitversion').style.display = 'inline';
@@ -930,13 +998,15 @@ onReady(function() {
                  * rather than silently submitting standard trust instead. */
                 var trustCertToSend = null;
                 if (wizard == "advanced") {
-                        var trustMode = document.querySelector('input[name=trustmode]:checked').value;
+                        var trustModeRadio = document.querySelector('input[name=trustmode]:checked');
+                        var trustMode = trustModeRadio ? trustModeRadio.value : 'standard';
                         if (trustMode == "custom") {
                                 if (!trustCertPem) {
                                         var trustStatus = document.getElementById('trust_cert_status');
                                         trustStatus.textContent = 'Provide and validate a certificate before building, or switch back to standard trust.';
                                         trustStatus.style.display = '';
                                         trustStatus.classList.add('error');
+                                        openFold('trust_fold');
                                         return;
                                 }
                                 trustCertToSend = trustCertPem;
@@ -1042,6 +1112,21 @@ onReady(function() {
 		document.getElementById('setdebug').value = debug;
 		document.getElementById('gitrevision').value = revision;
 		document.getElementById('embed').value = embed;
+		/* Any URL key that isn't one of the fixed fields read above is an
+		 * option override. Standard mode neither shows nor submits
+		 * #options -- buildcfgParams() only reads it when wizard ==
+		 * "advanced" -- so a config carrying one has to land in advanced
+		 * regardless of what the output format alone would pick, or the
+		 * override silently never reaches the build. Confirmed by testing:
+		 * without this check, a saved link for "EFI x86_64 snponly" (which
+		 * exists in both wizards' lists) with a PRODUCT_NAME override chose
+		 * standard mode, restored the value into the now-hidden input, and
+		 * submitted a build with no PRODUCT_NAME override at all. */
+		var FIXED_ARGS = { BINDIR: true, BINARY: true, REVISION: true, DEBUG: true,
+			'EMBED.00script.ipxe': true };
+		var hasOptionOverrides = Object.keys(args).some(function(key) {
+			return !FIXED_ARGS[key];
+		});
 		/* The standard and advanced wizards use different, only
 		 * partially-overlapping sets of BINDIR/BINARY values (e.g.
 		 * "undionly.kpxe" only exists in the standard wizard's list).
@@ -1052,7 +1137,7 @@ onReady(function() {
 		var isStandardValue = Array.from(document.querySelectorAll('#outputformatstd option')).some(function(opt) {
 			return opt.value === fullbinary;
 		});
-		if (isStandardValue) {
+		if (isStandardValue && !hasOptionOverrides) {
 			document.getElementById('standard').click();
 			document.getElementById('outputformatstd').value = fullbinary;
 			document.getElementById('outputformatstd').dispatchEvent(new Event('change'));
@@ -1061,12 +1146,21 @@ onReady(function() {
 			document.getElementById('outputformatadv').value = fullbinary;
 			document.getElementById('outputformatadv').dispatchEvent(new Event('change'));
 		}
+		/* A saved URL only carries options that deviated from the
+		 * defaults, so any of them appearing here means this
+		 * configuration is not stock. The options list is collapsed by
+		 * default; leaving it that way would hide the very settings the
+		 * link was shared to convey. */
+		var restoredAnOption = false;
 		/* For all Checkboxes in options div */
 		document.querySelectorAll('#options input[type=checkbox]').forEach(function(input) {
 			var name = input.name;
 			var value = input.checked ? 1 : 0;
-			if (typeof args[name] != "undefined" && value != args[name]) {
-				input.checked = (args[name] == 1);
+			if (typeof args[name] != "undefined") {
+				restoredAnOption = true;
+				if (value != args[name]) {
+					input.checked = (args[name] == 1);
+				}
 			}
 		});
 		/* For all text field in options div */
@@ -1074,8 +1168,10 @@ onReady(function() {
 			var name = input.name;
 			if (typeof args[name] != "undefined") {
 				input.value = args[name];
+				restoredAnOption = true;
 			}
 		});
+		if (restoredAnOption) { openFold('config_fold'); }
 	}
 
         /* Shows a build failure (build.fcgi's 500 response body) in the
@@ -1103,12 +1199,20 @@ onReady(function() {
                 if (!params) { return; }
                 var formData = new FormData();
                 params.forEach(function(value, key) { formData.append(key, value); });
+                var signError = appendSignFields(formData);
+                if (signError) {
+                        /* Reported in a modal, so it is seen either way -- but
+                         * the fields it names are in the folded section. */
+                        openFold('secureboot_fold');
+                        showBuildError(signError);
+                        return;
+                }
                 /* POST, not the previous GET navigation -- a custom trust
                  * certificate's PEM (up to 64 KiB) must never travel in a
                  * URL: query strings end up in browser history and in
                  * front-end web-server/proxy access logs before build.fcgi's
                  * own request-parameter redaction ever gets a chance to
-                 * apply. */
+                 * apply. The same is true of SIGN_KEY, more so. */
                 fetch('build.fcgi', { method: 'POST', body: formData }).then(function(response) {
                         if (!response.ok) {
                                 return response.text().then(showBuildError);
@@ -1439,17 +1543,21 @@ onReady(function() {
                 }, false);
         })();
 
-        /* Advanced wizard's "HTTPS certificate trust" section -- validates
-         * a user-supplied certificate (file or pasted text) against
-         * certificate.php and renders a metadata preview. The validated,
-         * normalised PEM is stored in the outer trustCertPem variable for
-         * buildcfg() to pick up; nothing here ever writes it into a URL
-         * directly (see the note on buildcfg()'s omitTrustCert). */
-        (function() {
-                var statusEl = document.getElementById('trust_cert_status');
-                var previewEl = document.getElementById('trust_cert_preview');
-                var fileInput = document.getElementById('trust_cert_file');
-                var textInput = document.getElementById('trust_cert_text');
+        /* Wires a file-or-paste certificate input pair to certificate.php
+         * and a status/preview display. Shared by the three sections that
+         * need it identically: HTTPS trust, Secure Boot signing, and
+         * verification.
+         *
+         * onChange(pem-or-null) fires whenever the validated result
+         * changes -- normalised PEM on success, null when cleared -- so
+         * the caller can store it wherever it belongs. Returns {reset}
+         * for callers that hide the section and need to clear it. */
+        function createCertUploadWidget(opts) {
+                var statusEl = document.getElementById(opts.statusId);
+                var previewEl = document.getElementById(opts.previewId);
+                var fileInput = document.getElementById(opts.fileInputId);
+                var textInput = document.getElementById(opts.textInputId);
+                var onChange = opts.onChange || function() {};
 
                 function setStatus(text, isError) {
                         if (!text) {
@@ -1464,7 +1572,7 @@ onReady(function() {
                 function clearPreview() {
                         previewEl.style.display = 'none';
                         previewEl.replaceChildren();
-                        trustCertPem = null;
+                        onChange(null);
                 }
 
                 function addField(block, label, value) {
@@ -1508,16 +1616,15 @@ onReady(function() {
                 }
 
                 /* Incremented for every validation started, and for anything
-                 * that invalidates one (a new certificate, or leaving custom
-                 * trust). A response only counts if its generation is still
-                 * the current one.
+                 * that invalidates one (a new certificate, or the widget
+                 * being reset). A response only counts if its generation is
+                 * still the current one.
                  *
                  * Without this, two validations in flight together can land
                  * in either order, so an earlier certificate could overwrite
-                 * a later one -- or a response arriving after the user
-                 * switched back to standard trust could put trustCertPem
-                 * back, leaving a certificate that is no longer on screen
-                 * baked into the next build. */
+                 * a later one -- or a response arriving after the widget was
+                 * reset could call onChange with a certificate that is no
+                 * longer on screen. */
                 var validationGeneration = 0;
 
                 function invalidatePendingValidation() {
@@ -1538,11 +1645,12 @@ onReady(function() {
                                                 return;
                                         }
                                         var expired = data.certificates.some(function(c) { return c.expired; });
-                                        trustCertPem = data.certificates.map(function(c) { return c.pem; }).join('\n');
+                                        var pem = data.certificates.map(function(c) { return c.pem; }).join('\n');
                                         renderPreview(data.certificates);
                                         setStatus(expired ?
                                                 'Validated, but at least one certificate has expired.' :
                                                 'Certificate validated.', expired);
+                                        onChange(pem);
                                 })
                                 .catch(function(err) {
                                         if (generation !== validationGeneration) { return; }
@@ -1571,23 +1679,165 @@ onReady(function() {
                         validate(formData);
                 });
 
+                function reset() {
+                        fileInput.value = '';
+                        textInput.value = '';
+                        clearPreview();
+                        setStatus(null);
+                        /* A validation already in flight must not be allowed
+                         * to land and call onChange with a certificate that
+                         * was just cleared. */
+                        invalidatePendingValidation();
+                }
+
+                return { reset: reset };
+        }
+
+        /* Advanced wizard's "HTTPS certificate trust" section -- the
+         * validated, normalised PEM is stored in the outer trustCertPem
+         * variable for buildcfg() to pick up; nothing here ever writes it
+         * into a URL directly (see the note on buildcfg()'s
+         * omitTrustCert). */
+        (function() {
+                /* Absent entirely unless UI_ENABLE_CERT_FEATURE is on --
+                 * createCertUploadWidget() assumes every element it's given
+                 * actually exists, so this has to stop here rather than let
+                 * it hit a null fileInput. */
+                if (!document.getElementById('trust')) { return; }
+
+                var trustWidget = createCertUploadWidget({
+                        fileInputId: 'trust_cert_file',
+                        textInputId: 'trust_cert_text',
+                        statusId: 'trust_cert_status',
+                        previewId: 'trust_cert_preview',
+                        onChange: function(pem) { trustCertPem = pem; }
+                });
+
                 document.querySelectorAll('input[name=trustmode]').forEach(function(radio) {
                         radio.addEventListener('change', function() {
                                 var custom = document.querySelector('input[name=trustmode]:checked').value === 'custom';
                                 document.getElementById('trust_custom_fields').style.display = custom ? '' : 'none';
-                                if (!custom) {
-                                        fileInput.value = '';
-                                        textInput.value = '';
-                                        clearPreview();
-                                        setStatus(null);
-                                        /* A validation already in flight must not be
-                                         * allowed to land and restore the certificate
-                                         * that was just cleared. */
-                                        invalidatePendingValidation();
-                                }
+                                if (!custom) { trustWidget.reset(); }
                         });
                 });
         })();
+
+        /* Advanced wizard's "Secure Boot signing & verification" section.
+         * Sign and verify are independent of each other: verify never
+         * touches key material at all, and is available regardless of
+         * whether the consent checkbox below has ever been ticked. */
+        (function() {
+                /* Absent entirely unless UI_ENABLE_CERT_FEATURE is on --
+                 * same reasoning as the trust widget's guard above. */
+                if (!document.getElementById('secureboot')) { return; }
+
+                /* POST keeps the signing key out of URLs and access logs
+                 * (see build.fcgi's sign_binary()), but that says nothing
+                 * about the network path itself: plain HTTP is still
+                 * readable by anything between this browser and the server.
+                 * Loopback is exempted since nothing there ever leaves the
+                 * machine, which also keeps this quiet for local testing. */
+                var LOOPBACK_HOSTNAMES = /^(localhost|127\.\d+\.\d+\.\d+|\[?::1\]?)$/i;
+                if (location.protocol !== 'https:' && !LOOPBACK_HOSTNAMES.test(location.hostname)) {
+                        var insecureWarning = document.getElementById('sign_insecure_warning');
+                        if (insecureWarning) { insecureWarning.style.display = ''; }
+                }
+
+                var signWidget = createCertUploadWidget({
+                        fileInputId: 'sign_cert_file',
+                        textInputId: 'sign_cert_text',
+                        statusId: 'sign_cert_status',
+                        previewId: 'sign_cert_preview',
+                        onChange: function(pem) { signCertPem = pem; }
+                });
+
+                /* No handle kept: nothing hides or resets this one, unlike
+                 * the signing widget above, which the consent checkbox
+                 * clears. It works purely through its own listeners. */
+                createCertUploadWidget({
+                        fileInputId: 'verify_cert_file',
+                        textInputId: 'verify_cert_text',
+                        statusId: 'verify_cert_status',
+                        previewId: 'verify_cert_preview',
+                        onChange: function(pem) { verifyCertPem = pem; }
+                });
+
+                var consentCheckbox = document.getElementById('sign_consent');
+                consentCheckbox.addEventListener('change', function() {
+                        document.getElementById('sign_fields').style.display =
+                                consentCheckbox.checked ? '' : 'none';
+                        if (!consentCheckbox.checked) {
+                                document.getElementById('sign_key_file').value = '';
+                                signWidget.reset();
+                        }
+                });
+
+                /* cssClass is 'match' (green), 'nomatch' (red), or null
+                 * while a check is in flight. */
+                function setVerifyResult(text, cssClass) {
+                        var el = document.getElementById('verify_result');
+                        el.textContent = text;
+                        el.className = 'verify-result' + ( cssClass ? ' ' + cssClass : '' );
+                        el.style.display = '';
+                }
+
+                document.getElementById('verify_button').addEventListener('click', function() {
+                        var fileInput = document.getElementById('verify_binary_file');
+                        var file = fileInput.files[0];
+                        if (!file) {
+                                setVerifyResult('Choose a binary to check first.', 'nomatch');
+                                return;
+                        }
+                        if (!verifyCertPem) {
+                                setVerifyResult('Provide and validate a certificate first.', 'nomatch');
+                                return;
+                        }
+                        setVerifyResult('Checking...', null);
+                        var formData = new FormData();
+                        formData.append('VERIFY_CERT', verifyCertPem);
+                        formData.append('VERIFY_BINARY', file);
+                        fetch('verify.fcgi', { method: 'POST', body: formData })
+                                .then(function(response) { return response.json(); })
+                                .then(function(data) {
+                                        if (data.error) {
+                                                setVerifyResult(data.error, 'nomatch');
+                                                return;
+                                        }
+                                        setVerifyResult(data.message, data.verified ? 'match' : 'nomatch');
+                                })
+                                .catch(function(err) {
+                                        setVerifyResult('Could not reach the verification service: ' + err.message, 'nomatch');
+                                });
+                });
+        })();
+
+        /* Adds SIGN_KEY/SIGN_CERT to an outgoing build FormData. The key
+         * is taken straight from its <input type=file> at submit time and
+         * never held in a variable, so it cannot leak into a later
+         * request.
+         *
+         * Returns an error string when signing was asked for but is
+         * incomplete -- better than quietly building unsigned when the
+         * requester expected a signed binary -- or null when there is
+         * nothing to add. */
+        function appendSignFields(formData) {
+                var consentCheckbox = document.getElementById('sign_consent');
+                /* Absent unless UI_ENABLE_CERT_FEATURE is on -- nothing to
+                 * sign with, so behave exactly as if the (nonexistent)
+                 * checkbox were unticked. */
+                if (!consentCheckbox || !consentCheckbox.checked) { return null; }
+                var keyFile = document.getElementById('sign_key_file').files[0];
+                if (!keyFile && !signCertPem) { return null; }
+                if (!keyFile || !signCertPem) {
+                        return 'Signing is enabled, but ' +
+                                (!keyFile ? 'no private key file has been selected' :
+                                        'the certificate has not been supplied and validated') +
+                                '. Provide both, or uncheck signing to build unsigned.';
+                }
+                formData.append('SIGN_KEY', keyFile);
+                formData.append('SIGN_CERT', signCertPem);
+                return null;
+        }
 
         // Check for the various File API support.
         if (!window.File && !window.FileReader) {

@@ -35,6 +35,39 @@ if [ "$UPDATE_ON_START" = "true" ]; then
 else
 	echo "UPDATE_ON_START is not 'true', running the baked-in baseline (frozen mode)."
 fi
+# Generate index.html from its template on every start (not just once at
+# image build), so this also takes effect after UPDATE_ON_START pulls a new
+# template and after a plain container restart with a changed ENV. Regular
+# index.html is gitignored precisely because it's this script's output, not
+# a source file -- UPDATE_ON_START's git pull above only ever touches the
+# template.
+#
+# Certificate handling is opt-in. UI_ENABLE_CERT_FEATURE=true keeps the
+# HTTPS certificate trust and Secure Boot signing/verification sections
+# (marked CERT_FEATURE:BEGIN/END in the template) in the page; anything
+# else strips them out entirely. The same choice writes a flag file
+# build.fcgi and verify.fcgi both check on every request, so this is a
+# real "this feature does not exist on this deployment" toggle rather
+# than a hidden UI section still reachable by posting to those scripts
+# directly.
+#
+# The flag marks *enabled*, not disabled, so the off state is the absence
+# of a file: if this script somehow never runs, the features stay off
+# rather than silently coming on.
+CERT_FEATURE_FLAG=/opt/rom-o-matic/.cert-feature-enabled
+TEMPLATE=/opt/rom-o-matic/public/index.html.template
+INDEX=/opt/rom-o-matic/public/index.html
+if [ "$UI_ENABLE_CERT_FEATURE" = "true" ]; then
+	echo "UI_ENABLE_CERT_FEATURE is 'true': certificate trust and Secure Boot sections are available."
+	cp "$TEMPLATE" "$INDEX"
+	touch "$CERT_FEATURE_FLAG"
+else
+	echo "UI_ENABLE_CERT_FEATURE is not 'true': certificate trust and Secure Boot signing/verification are disabled. Set UI_ENABLE_CERT_FEATURE=true to offer them."
+	sed '/<!-- CERT_FEATURE:BEGIN/,/<!-- CERT_FEATURE:END -->/d' "$TEMPLATE" > "$INDEX"
+	rm -f "$CERT_FEATURE_FLAG"
+fi
+chown www-data:www-data "$INDEX"
+
 # Add ServerName to apache2.conf to avoid warning about fully qualified domain name.
 # Guarded so restarting an existing container doesn't keep appending it.
 if ! grep -q '^ServerName' /etc/apache2/apache2.conf; then
