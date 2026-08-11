@@ -100,11 +100,41 @@ jobs:
             --name rom-o-matic-smoke \
             ${{ env.IMAGE_NAME }}:test
 
+      # build.ini ships concurrency=16 for `make -jN`, sized for a real
+      # deployment box rather than a shared CI runner. Left at 16 here, a
+      # string of failures across this job -- always "the FastCGI worker
+      # died mid-request with no error text", never the same request twice
+      # (verify.fcgi's first call, then separately a build.fcgi call) --
+      # traced back to oversubscribed parallel compiles competing for
+      # memory. Overridden only inside this disposable container, not the
+      # image itself.
+      - name: Reduce build concurrency for this runner
+        run: docker exec rom-o-matic-smoke sed -i 's/^\( *\)concurrency=.*/\1concurrency=2/' /opt/rom-o-matic/build.ini
+
       - name: Smoke-test HTTP endpoints
         run: bash scripts/ci/smoke-endpoints.sh
 
       - name: Smoke-test iPXE builds
         run: bash scripts/ci/smoke-builds.sh
+
+      # smoke-signing.sh signs the same bindir/revision the certificate-
+      # trust build above just built. build.fcgi's own cache write finishes
+      # in a detached background process after the HTTP response already
+      # returned (see start_gzip() in build.fcgi); firing the next request
+      # before that settles found no valid cache tag yet and triggered a
+      # full second compile instead of a quick cache hit -- confirmed from
+      # a passing run's own timing, where the "sign" request took 41s,
+      # nearly as long as the 50s original compile it should have reused.
+      - name: Wait for background cache compression to settle
+        run: |
+          for i in $(seq 1 30); do
+            if ! docker exec rom-o-matic-smoke pgrep -x gzip >/dev/null 2>&1; then
+              echo "No gzip running after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "gzip still running after 30s -- continuing anyway"
 
       # sbverify, used to independently re-check a signed binary from
       # outside the container that produced it (see smoke-signing.sh) --
