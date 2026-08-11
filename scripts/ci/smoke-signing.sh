@@ -94,16 +94,45 @@ echo "$response" | grep -q '"verified":true' || {
   echo "-- container logs (untruncated) --"
   docker logs "$container" 2>&1 || true
   echo "-- host kernel log: OOM/kill activity --"
-  if dmesg_output=$(sudo dmesg 2>&1); then
-    matches=$(printf '%s\n' "$dmesg_output" | grep -iE 'killed process|out of memory|oom')
-    if [ -n "$matches" ]; then
-      printf '%s\n' "$matches" | tail -20
+  # `matches=$(pipeline)` still trips `set -e` when the pipeline's last
+  # command exits non-zero even though it is only reporting "grep found
+  # nothing" -- a bare assignment isn't one of set -e's documented
+  # exemptions (unlike an if-condition). Previously lost this entire
+  # section's output silently: the script exited right here, with no
+  # error message, the moment dmesg legitimately found nothing to report.
+  if dmesg_text=$(sudo dmesg 2>&1); then
+    oom_lines=$(printf '%s\n' "$dmesg_text" | grep -iE 'killed process|out of memory|oom' || true)
+    if [ -n "$oom_lines" ]; then
+      printf '%s\n' "$oom_lines" | tail -20
     else
       echo "dmesg ran cleanly -- no OOM/kill lines found"
     fi
   else
-    echo "dmesg itself failed or is unavailable on this runner (exit $?)"
+    echo "dmesg itself failed or is unavailable on this runner"
   fi
+
+  # A zombie found here means some child under the container's process
+  # tree exited around the failure and has not yet been reaped by its
+  # parent -- worth knowing whether that parent is Apache itself (a
+  # worker crash, upstream of anything build.fcgi/verify.fcgi could ever
+  # log) rather than the FastCGI child process.
+  echo "-- zombie/defunct processes in the container --"
+  zombies=$(docker exec "$container" sh -c 'ps aux' 2>&1 | awk '$8 ~ /^Z/' || true)
+  if [ -n "$zombies" ]; then
+    echo "$zombies"
+    zpid=$(printf '%s\n' "$zombies" | awk '{print $2}' | head -1)
+    if [ -n "$zpid" ]; then
+      echo "-- /proc/${zpid}/status for that PID (parent PID, while still readable) --"
+      docker exec "$container" sh -c "cat /proc/${zpid}/status" 2>&1 || true
+    fi
+  else
+    echo "no zombie/defunct processes found"
+  fi
+
+  echo "-- Apache's own child-death log lines --"
+  docker logs "$container" 2>&1 | grep -iE 'AH0005[0-9]|exit signal|core dumped|segfault' \
+    || echo "none found"
+
   exit 1
 }
 echo "$response" | grep -q '"reason":"match"' || {
