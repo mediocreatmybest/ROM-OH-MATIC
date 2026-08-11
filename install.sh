@@ -171,6 +171,15 @@ else
     apk add --no-cache \
 	sbsigntool
 
+    # build.fcgi and verify.fcgi both shell out to the openssl CLI directly
+    # (certificate parsing/validation ahead of sbsign) -- present by default
+    # on Ubuntu, but Alpine's base image has no openssl binary at all, only
+    # busybox applets, none of which is it. Confirmed missing (and this
+    # line added) after an actual signed-build request 500'd with
+    # `"openssl" failed to start: "No such file or directory"`.
+    apk add --no-cache \
+	openssl
+
     # configure fast-cgi
     cat << EOF > /etc/apache2/conf.d/rom-o-matic-fcgid.conf
 <IfModule mod_fcgid.c>
