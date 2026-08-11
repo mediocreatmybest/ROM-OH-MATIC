@@ -7,34 +7,17 @@
 # Website:  https://ipxe.org, https://github.com/xbgmsharp/ipxe-buildweb
 #------------------------------------------------------------------------
 
-# Selects the package manager and every OS-specific path/user/package name
-# below. Set by the Dockerfile (ENV TARGET_OS, from ARG TARGET_OS) so it's
-# also available at container runtime, e.g. to start.sh. Defaults to ubuntu
-# so a plain `bash install.sh` outside the Dockerfile behaves as before.
-TARGET_OS="${TARGET_OS:-ubuntu}"
+# WWW_OWNER, DOCROOT_LINK and FCGID_CONF_PATH below all come from this --
+# copied to /tmp alongside install.sh by the Dockerfile, since /opt/rom-o-
+# matic (where the repo's own copy lives) doesn't exist yet at this point.
+# shellcheck source=scripts/os-env.sh disable=SC1091
+. /tmp/os-env.sh
 
-case "$TARGET_OS" in
-    ubuntu)
-	WWW_USER=www-data
-	WWW_GROUP=www-data
-	DOCROOT_LINK=/var/www/html
-	;;
-    alpine)
-	WWW_USER=apache
-	WWW_GROUP=apache
-	DOCROOT_LINK=/var/www/localhost/htdocs
-	;;
-    *)
-	echo "install.sh: unknown TARGET_OS '$TARGET_OS' (expected 'ubuntu' or 'alpine')" >&2
-	exit 1
-	;;
-esac
-
-# Every package installed below, before anything touches the filesystem
-# with $WWW_USER/$WWW_GROUP. On Ubuntu www-data already exists in the base
-# image, but on Alpine the apache user is created by the apache2 package
-# itself -- chowning to it earlier (as this script briefly did) fails with
-# "unknown user/group" because that package hasn't been installed yet.
+# Every package installed below, before anything touches the filesystem as
+# $WWW_OWNER. On Ubuntu www-data already exists in the base image, but on
+# Alpine the apache user is created by the apache2 package itself --
+# chowning to it earlier (as this script briefly did) fails with "unknown
+# user/group" because that package hasn't been installed yet.
 if [ "$TARGET_OS" = "ubuntu" ]; then
     # Fix "Error debconf: unable to initialize frontend: Dialog"
     echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
@@ -86,31 +69,6 @@ if [ "$TARGET_OS" = "ubuntu" ]; then
     # and public/verify.fcgi.
     apt-get -yq install \
 	sbsigntool
-
-    # configure fast-cgi
-    cat << EOF > /etc/apache2/mods-enabled/fcgid.conf
-<IfModule mod_fcgid.c>
-    FcgidConnectTimeout 120
-    FcgidIdleTimeout 3600
-    FcgidBusyTimeout 300
-    FcgidIOTimeout 360
-    # Raised from the previous 15 MiB to comfortably clear verify.fcgi's own
-    # 34 MB request cap (32 MiB binary + certificate + multipart overhead) --
-    # otherwise mod_fcgid rejects an oversized-but-under-the-app-limit
-    # upload itself, as a generic 500 page, before verify.fcgi's own check
-    # ever runs to explain why. This is a ceiling, not a target: build.fcgi's
-    # own per-field limits (TRUST_MAX_BYTES etc.) are unchanged and are what
-    # actually bounds a normal build request.
-    FcgidMaxRequestLen 40000000
-    <IfModule mod_mime.c>
-        AddHandler fcgid-script .fcgi
-    </IfModule>
-    <Files ~ (\.fcgi)>
-        SetHandler fcgid-script
-        Options +FollowSymLinks +ExecCGI
-    </Files>
-</IfModule>
-EOF
 else
     # Alpine's index needs refreshing the same way apt's does; --no-cache
     # skips the local package index cache entirely instead of needing a
@@ -139,10 +97,6 @@ else
     # snippet into /etc/apache2/conf.d/ on install and httpd.conf
     # IncludeOptional-s the whole directory -- there's no Ubuntu-style
     # a2enmod/mods-enabled step on Alpine, installing the package is enough.
-    # The fcgid package's own conf.d snippet only wires up a /fcgi-bin/
-    # alias though, not the .fcgi extension handler this app actually
-    # needs, so that part still has to be added here, just as its own
-    # conf.d file rather than overwriting the package's.
     apk add --no-cache \
 	apache-mod-fcgid \
 	php83 php83-apache2 php83-openssl
@@ -179,9 +133,12 @@ else
     # `"openssl" failed to start: "No such file or directory"`.
     apk add --no-cache \
 	openssl
+fi
 
-    # configure fast-cgi
-    cat << EOF > /etc/apache2/conf.d/rom-o-matic-fcgid.conf
+# configure fast-cgi. Identical on both OSes -- only where it's written
+# differs (FCGID_CONF_PATH, from os-env.sh), so this runs once rather than
+# being duplicated inside the branch above where it can drift.
+cat << EOF > "$FCGID_CONF_PATH"
 <IfModule mod_fcgid.c>
     FcgidConnectTimeout 120
     FcgidIdleTimeout 3600
@@ -204,7 +161,6 @@ else
     </Files>
 </IfModule>
 EOF
-fi
 
 # check ssl state of git from ENV due to systems with proxy MITM / SSL Inspection.
 # Only disable SSL verify if GIT_SSL_VERIFY is set to false
@@ -221,7 +177,7 @@ GIT_REF="${GIT_REF:-master}"
 git clone https://github.com/mediocreatmybest/ROM-OH-MATIC.git /opt/rom-o-matic
 git -C /opt/rom-o-matic checkout "$GIT_REF"
 git -C /opt/rom-o-matic submodule update --init --recursive
-chown -R "$WWW_USER:$WWW_GROUP" /opt/rom-o-matic
+chown -R "$WWW_OWNER" /opt/rom-o-matic
 
 # Allow iPXE submodule to be updated due to change in ownership with submodules
 git config --global --add safe.directory /opt/rom-o-matic/ipxe
@@ -243,7 +199,7 @@ rm -rf \
 
 # Prepare the git iPXE repository
 touch /var/run/ipxe-build/ipxe-build-cache.lock
-chown -R "$WWW_USER:$WWW_GROUP" \
+chown -R "$WWW_OWNER" \
     /var/run/ipxe-build/ipxe-build-cache.lock \
     /var/cache/ipxe-build \
     /var/run/ipxe-build \

@@ -113,8 +113,11 @@ RUN mkdir -p /run/sshd
 # under test rather than always cloning master (see install.sh).
 ARG GIT_REF=master
 
-# Add the install script in the directory.
-COPY install.sh /tmp/install.sh
+# Add the install script and its shared TARGET_OS mapping (scripts/os-env.sh
+# is also sourced by start.sh later, from its normal place in the cloned
+# repo -- copied here too since /opt/rom-o-matic doesn't exist yet at this
+# point in the build).
+COPY install.sh scripts/os-env.sh /tmp/
 RUN chmod +x /tmp/install.sh
 
 # Install it all. TARGET_OS is already in the environment (set above), so

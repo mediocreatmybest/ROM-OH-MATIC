@@ -1,17 +1,9 @@
 #!/bin/bash
-# Selects the user/group Apache runs as and which main config file gets the
-# ServerName line below. Set by the Dockerfile (ENV TARGET_OS); defaults to
-# ubuntu so this script still behaves if ever run outside that image.
-TARGET_OS="${TARGET_OS:-ubuntu}"
-if [ "$TARGET_OS" = "alpine" ]; then
-	WWW_USER=apache
-	WWW_GROUP=apache
-	APACHE_MAIN_CONF=/etc/apache2/httpd.conf
-else
-	WWW_USER=www-data
-	WWW_GROUP=www-data
-	APACHE_MAIN_CONF=/etc/apache2/apache2.conf
-fi
+# WWW_OWNER, APACHE_MAIN_CONF and APACHE_FOREGROUND_CMD below all come from
+# this shared file (also sourced by install.sh at build time), so the two
+# scripts can't drift apart on what "ubuntu" or "alpine" actually means.
+# shellcheck source=scripts/os-env.sh disable=SC1091
+. /opt/rom-o-matic/scripts/os-env.sh
 
 # Start sshd for remote access, but only if explicitly enabled -- there is
 # no default password and no default root access. Prefer `docker exec` for
@@ -80,7 +72,7 @@ else
 	sed '/<!-- CERT_FEATURE:BEGIN/,/<!-- CERT_FEATURE:END -->/d' "$TEMPLATE" > "$INDEX"
 	rm -f "$CERT_FEATURE_FLAG"
 fi
-chown "$WWW_USER:$WWW_GROUP" "$INDEX"
+chown "$WWW_OWNER" "$INDEX"
 
 # Add ServerName to the main Apache config to avoid warning about fully
 # qualified domain name. Guarded so restarting an existing container
@@ -96,12 +88,6 @@ ln -sf /dev/stderr /var/log/apache2/error.log
 
 # Run Apache as the actual foreground process the container monitors --
 # a crashed Apache now stops the container instead of it staying alive via
-# `tail`. No more suppressing startup errors, either. Alpine's apache2
-# package ships no apachectl wrapper, just the httpd binary itself; the
-# -D FOREGROUND flag is the same on both.
+# `tail`. No more suppressing startup errors, either.
 echo "Starting apache2 in the foreground..."
-if [ "$TARGET_OS" = "alpine" ]; then
-	exec httpd -D FOREGROUND
-else
-	exec apachectl -D FOREGROUND
-fi
+exec "${APACHE_FOREGROUND_CMD[@]}"
