@@ -151,8 +151,9 @@
 			</div>
 
 			<!-- CERT_FEATURE:BEGIN -- both certificate sections below (HTTPS
-			     trust and Secure Boot signing/verification) are removed as
-			     one block when UI_REMOVE_CERT_FEATURE=true. See start.sh. -->
+			     trust and Secure Boot signing/verification) are opt-in, and
+			     are kept as one block only when UI_ENABLE_CERT_FEATURE=true.
+			     See start.sh. -->
 			<div id="trust" class="trust" style="display: none">
 				<div class="spacer">
 				<details class="section-fold" id="trust_fold">

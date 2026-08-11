@@ -50,10 +50,12 @@ ENV UPDATE_ON_START=false
 # enable it at runtime; see start.sh. Normal debugging should use
 # `docker exec` instead.
 ENV ENABLE_SSH=false
-# Certificate trust and Secure Boot signing/verification are available by
-# default. Set to "true" to remove both from the interface and have
-# build.fcgi/verify.fcgi refuse them outright; see start.sh.
-ENV UI_REMOVE_CERT_FEATURE=false
+# Certificate trust and Secure Boot signing/verification are opt-in: off
+# unless this is set to "true". Anything that handles a private key stays
+# absent from a default deployment, and build.fcgi/verify.fcgi refuse the
+# corresponding fields outright rather than only hiding the UI for them;
+# see start.sh.
+ENV UI_ENABLE_CERT_FEATURE=false
 
 # Install SSH. The server is always present (keeps this a single image
 # rather than a separate SSH-enabled variant), but start.sh only launches

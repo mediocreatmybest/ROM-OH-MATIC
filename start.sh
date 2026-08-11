@@ -42,22 +42,28 @@ fi
 # a source file -- UPDATE_ON_START's git pull above only ever touches the
 # template.
 #
-# UI_REMOVE_CERT_FEATURE=true strips the HTTPS certificate trust and Secure
-# Boot signing/verification sections (marked CERT_FEATURE:BEGIN/END in the
-# template) out of the page entirely, and writes a flag file build.fcgi and
-# verify.fcgi both check on every request -- so this is a real "this feature
-# does not exist on this deployment" toggle, not just a hidden UI section
-# still reachable by posting to those scripts directly.
-CERT_FEATURE_FLAG=/opt/rom-o-matic/.cert-feature-disabled
+# Certificate handling is opt-in. UI_ENABLE_CERT_FEATURE=true keeps the
+# HTTPS certificate trust and Secure Boot signing/verification sections
+# (marked CERT_FEATURE:BEGIN/END in the template) in the page; anything
+# else strips them out entirely. The same choice writes a flag file
+# build.fcgi and verify.fcgi both check on every request, so this is a
+# real "this feature does not exist on this deployment" toggle rather
+# than a hidden UI section still reachable by posting to those scripts
+# directly.
+#
+# The flag marks *enabled*, not disabled, so the off state is the absence
+# of a file: if this script somehow never runs, the features stay off
+# rather than silently coming on.
+CERT_FEATURE_FLAG=/opt/rom-o-matic/.cert-feature-enabled
 TEMPLATE=/opt/rom-o-matic/public/index.html.template
 INDEX=/opt/rom-o-matic/public/index.html
-if [ "$UI_REMOVE_CERT_FEATURE" = "true" ]; then
-	echo "UI_REMOVE_CERT_FEATURE is 'true': removing certificate trust and Secure Boot sections from the interface."
-	sed '/<!-- CERT_FEATURE:BEGIN/,/<!-- CERT_FEATURE:END -->/d' "$TEMPLATE" > "$INDEX"
+if [ "$UI_ENABLE_CERT_FEATURE" = "true" ]; then
+	echo "UI_ENABLE_CERT_FEATURE is 'true': certificate trust and Secure Boot sections are available."
+	cp "$TEMPLATE" "$INDEX"
 	touch "$CERT_FEATURE_FLAG"
 else
-	echo "UI_REMOVE_CERT_FEATURE is not 'true', certificate trust and Secure Boot sections are available."
-	cp "$TEMPLATE" "$INDEX"
+	echo "UI_ENABLE_CERT_FEATURE is not 'true': certificate trust and Secure Boot signing/verification are disabled. Set UI_ENABLE_CERT_FEATURE=true to offer them."
+	sed '/<!-- CERT_FEATURE:BEGIN/,/<!-- CERT_FEATURE:END -->/d' "$TEMPLATE" > "$INDEX"
 	rm -f "$CERT_FEATURE_FLAG"
 fi
 chown www-data:www-data "$INDEX"

@@ -618,16 +618,19 @@ sub pem_cert_blocks {
 	   /(-----BEGIN CERTIFICATE-----.+?-----END CERTIFICATE-----)/sg );
 }
 
-# Written by start.sh, once, when UI_REMOVE_CERT_FEATURE=true -- an operator
-# opt-out of certificate trust and Secure Boot signing/verification
-# entirely, not just hiding the UI for them. Checked with a fresh stat() on
-# every request rather than cached at process start: FCGI workers are
+# Written by start.sh, once, when UI_ENABLE_CERT_FEATURE=true -- certificate
+# trust and Secure Boot signing/verification are opt-in, and this is the
+# operator opting in, not just unhiding the UI. Checked with a fresh stat()
+# on every request rather than cached at process start: FCGI workers are
 # long-lived, so caching this would mean a container restarted with a
 # changed ENV keeps enforcing (or not) whatever was true when each worker
 # happened to fork.
-use constant CERT_FEATURE_FLAG => "/opt/rom-o-matic/.cert-feature-disabled";
+#
+# The flag marks enabled rather than disabled, so anything that stops
+# start.sh from writing it leaves these features off rather than on.
+use constant CERT_FEATURE_FLAG => "/opt/rom-o-matic/.cert-feature-enabled";
 
-sub cert_feature_disabled {
+sub cert_feature_enabled {
   return -e CERT_FEATURE_FLAG;
 }
 
@@ -639,8 +642,8 @@ sub trust_cert {
   delete $params->{TRUST_CERT};
   return unless defined $pem && length $pem;
 
-  die "Certificate trust is disabled on this deployment\n"
-      if cert_feature_disabled();
+  die "Certificate trust is not enabled on this deployment\n"
+      unless cert_feature_enabled();
 
   # TRUST_CERT must never travel in a URL -- a GET request puts it in the
   # query string, which lands in browser history and in front-end web-
@@ -725,8 +728,8 @@ sub sign_binary {
   return unless ( defined $keyContent && length $keyContent ) ||
                 ( defined $certPem && length $certPem );
 
-  die "Secure Boot signing is disabled on this deployment\n"
-      if cert_feature_disabled();
+  die "Secure Boot signing is not enabled on this deployment\n"
+      unless cert_feature_enabled();
 
   # SIGN_KEY/SIGN_CERT must never travel in a URL, same reasoning as
   # TRUST_CERT -- this endpoint is directly reachable on its own, so

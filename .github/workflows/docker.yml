@@ -88,10 +88,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # UI_ENABLE_CERT_FEATURE is off in the image by default, so the
+      # certificate-trust and Secure Boot tests below would have nothing to
+      # exercise without it. The shipped default is covered separately, by
+      # the default-off step further down.
       - name: Start container
         run: |
           docker run --detach \
             --publish 8080:80 \
+            --env UI_ENABLE_CERT_FEATURE=true \
             --name rom-o-matic-smoke \
             ${{ env.IMAGE_NAME }}:test
 
@@ -111,6 +116,13 @@ jobs:
 
       - name: Smoke-test Secure Boot signing and verification
         run: bash scripts/ci/smoke-signing.sh
+
+      # Everything above runs with the certificate features switched on.
+      # This covers what a plain `docker run` of the published image
+      # actually does -- the default nobody has to opt into, and therefore
+      # the one worth proving stays off.
+      - name: Smoke-test the default-off certificate state
+        run: bash scripts/ci/smoke-cert-disabled.sh
 
       - name: Print container logs on failure
         if: failure()

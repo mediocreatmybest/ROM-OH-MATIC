@@ -600,11 +600,10 @@ onReady(function() {
                                 document.getElementById('embed').value = preset.embed;
                         }
 
-                        /* Absent when UI_REMOVE_CERT_FEATURE has stripped the
-                         * trust section out of the page entirely -- a preset
-                         * asking for a certificate has nowhere to send the
-                         * user on a deployment where that feature doesn't
-                         * exist, so this note is the only trace of it. */
+                        /* Absent unless UI_ENABLE_CERT_FEATURE is on -- a
+                         * preset asking for a certificate has nowhere to
+                         * send the user on a deployment without that
+                         * feature, so this note is the only trace of it. */
                         if (preset.requires_trust_cert) {
                                 var trustCustomRadio = document.getElementById('trust_custom');
                                 if (trustCustomRadio) {
@@ -767,7 +766,7 @@ onReady(function() {
         document.getElementById('outputformatstd').selectedIndex = 0;
         document.getElementById('outputformatadv').selectedIndex = 0;
         document.getElementById('embed').value = '';
-        /* Absent when UI_REMOVE_CERT_FEATURE has removed the trust section. */
+        /* Absent unless UI_ENABLE_CERT_FEATURE is on. */
         var trustStandardRadio = document.getElementById('trust_standard');
         if (trustStandardRadio) { trustStandardRadio.checked = true; }
 
@@ -818,8 +817,8 @@ onReady(function() {
         }
 
         /* Sets display on an element that may not exist at all --
-         * UI_REMOVE_CERT_FEATURE removes the trust and Secure Boot sections
-         * from the page entirely, rather than just hiding them, so every
+         * UI_ENABLE_CERT_FEATURE leaves the trust and Secure Boot sections out
+         * of the page entirely, rather than just hiding them, so every
          * display toggle that touches one of those has to tolerate it being
          * absent from the DOM. */
         function setDisplayIfPresent(id, value) {
@@ -1700,10 +1699,10 @@ onReady(function() {
          * into a URL directly (see the note on buildcfg()'s
          * omitTrustCert). */
         (function() {
-                /* Absent entirely when UI_REMOVE_CERT_FEATURE has stripped
-                 * this section out of the page -- createCertUploadWidget()
-                 * assumes every element it's given actually exists, so this
-                 * has to stop here rather than let it hit a null fileInput. */
+                /* Absent entirely unless UI_ENABLE_CERT_FEATURE is on --
+                 * createCertUploadWidget() assumes every element it's given
+                 * actually exists, so this has to stop here rather than let
+                 * it hit a null fileInput. */
                 if (!document.getElementById('trust')) { return; }
 
                 var trustWidget = createCertUploadWidget({
@@ -1728,9 +1727,8 @@ onReady(function() {
          * touches key material at all, and is available regardless of
          * whether the consent checkbox below has ever been ticked. */
         (function() {
-                /* Absent entirely when UI_REMOVE_CERT_FEATURE has stripped
-                 * this section out of the page -- same reasoning as the
-                 * trust widget's guard above. */
+                /* Absent entirely unless UI_ENABLE_CERT_FEATURE is on --
+                 * same reasoning as the trust widget's guard above. */
                 if (!document.getElementById('secureboot')) { return; }
 
                 /* POST keeps the signing key out of URLs and access logs
@@ -1824,9 +1822,9 @@ onReady(function() {
          * nothing to add. */
         function appendSignFields(formData) {
                 var consentCheckbox = document.getElementById('sign_consent');
-                /* Absent when UI_REMOVE_CERT_FEATURE has removed the section
-                 * -- nothing to sign with, so behave exactly as if the
-                 * (nonexistent) checkbox were unticked. */
+                /* Absent unless UI_ENABLE_CERT_FEATURE is on -- nothing to
+                 * sign with, so behave exactly as if the (nonexistent)
+                 * checkbox were unticked. */
                 if (!consentCheckbox || !consentCheckbox.checked) { return null; }
                 var keyFile = document.getElementById('sign_key_file').files[0];
                 if (!keyFile && !signCertPem) { return null; }
