@@ -30,6 +30,11 @@ case "$TARGET_OS" in
 	;;
 esac
 
+# Every package installed below, before anything touches the filesystem
+# with $WWW_USER/$WWW_GROUP. On Ubuntu www-data already exists in the base
+# image, but on Alpine the apache user is created by the apache2 package
+# itself -- chowning to it earlier (as this script briefly did) fails with
+# "unknown user/group" because that package hasn't been installed yet.
 if [ "$TARGET_OS" = "ubuntu" ]; then
     # Fix "Error debconf: unable to initialize frontend: Dialog"
     echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
@@ -39,40 +44,7 @@ if [ "$TARGET_OS" = "ubuntu" ]; then
 
     # install git client
     apt-get -yq install git
-else
-    # Alpine's index needs refreshing the same way apt's does; --no-cache
-    # skips the local package index cache entirely instead of needing a
-    # separate `rm -rf /var/cache/apk/*` cleanup step later.
-    apk update
-    apk add --no-cache git
-    # Alpine ships no shell but busybox ash by default. install.sh,
-    # start.sh and update.sh all use bash-specific syntax, so bash is
-    # installed here rather than rewritten to plain POSIX sh.
-    apk add --no-cache bash
-fi
 
-# check ssl state of git from ENV due to systems with proxy MITM / SSL Inspection.
-# Only disable SSL verify if GIT_SSL_VERIFY is set to false
-if [ "$GIT_SSL_VERIFY" = "false" ]; then
-    echo "git ssl verify is flagged to be disabled"
-    git config --global http.sslVerify false
-fi
-
-# clone this repository at the revision under test. Defaults to master so a
-# plain `docker build .` behaves as before; CI passes --build-arg
-# GIT_REF=<commit-or-branch> so a pull-request build actually tests the PR's
-# content instead of silently testing whatever is currently on master.
-GIT_REF="${GIT_REF:-master}"
-git clone https://github.com/mediocreatmybest/ROM-OH-MATIC.git /opt/rom-o-matic
-git -C /opt/rom-o-matic checkout "$GIT_REF"
-git -C /opt/rom-o-matic submodule update --init --recursive
-chown -R "$WWW_USER:$WWW_GROUP" /opt/rom-o-matic
-
-# Allow iPXE submodule to be updated due to change in ownership with submodules
-git config --global --add safe.directory /opt/rom-o-matic/ipxe
-git config --global --add safe.directory /opt/rom-o-matic
-
-if [ "$TARGET_OS" = "ubuntu" ]; then
     # Install basic compilation tools and dev libraries
     apt-get -yq install \
 	build-essential \
@@ -87,44 +59,7 @@ if [ "$TARGET_OS" = "ubuntu" ]; then
 	libipc-system-simple-perl \
 	libsub-override-perl \
 	libcgi-pm-perl
-else
-    apk add --no-cache \
-	build-base \
-	iasl mtools perl python3 \
-	subversion util-linux-dev xz-dev
 
-    apk add --no-cache \
-	perl-uri \
-	perl-fcgi \
-	perl-config-inifiles \
-	perl-ipc-system-simple \
-	perl-sub-override \
-	perl-cgi
-fi
-
-#  Prepare iPXE directory
-# Note: build.fcgi's cache root and lockfile (see build.ini) live under
-# /var/cache/ipxe-build and /var/run/ipxe-build; its own scratch/worktree
-# directories use the system tmpdir (plain /tmp), not /var/tmp. An earlier
-# /var/tmp/ipxe-build here was dead weight -- created, then immediately
-# wiped by the later `rm -rf /tmp/* /var/tmp/*` cleanup step anyway, and
-# nothing ever read from it.
-mkdir -p \
-    /var/cache/ipxe-build \
-    /var/run/ipxe-build
-rm -rf \
-    /var/cache/ipxe-build/* \
-    /var/run/ipxe-build/*
-
-# Prepare the git iPXE repository
-touch /var/run/ipxe-build/ipxe-build-cache.lock
-chown -R "$WWW_USER:$WWW_GROUP" \
-    /var/run/ipxe-build/ipxe-build-cache.lock \
-    /var/cache/ipxe-build \
-    /var/run/ipxe-build \
-    /opt/rom-o-matic/ipxe
-
-if [ "$TARGET_OS" = "ubuntu" ]; then
     # Install Apache with fast CGI and PHP module
     apt-get -yq install \
 	libapache2-mod-fcgid \
@@ -177,6 +112,29 @@ if [ "$TARGET_OS" = "ubuntu" ]; then
 </IfModule>
 EOF
 else
+    # Alpine's index needs refreshing the same way apt's does; --no-cache
+    # skips the local package index cache entirely instead of needing a
+    # separate `rm -rf /var/cache/apk/*` cleanup step later.
+    apk update
+    apk add --no-cache git
+    # Alpine ships no shell but busybox ash by default. install.sh,
+    # start.sh and update.sh all use bash-specific syntax, so bash is
+    # installed here rather than rewritten to plain POSIX sh.
+    apk add --no-cache bash
+
+    apk add --no-cache \
+	build-base \
+	iasl mtools perl python3 \
+	subversion util-linux-dev xz-dev
+
+    apk add --no-cache \
+	perl-uri \
+	perl-fcgi \
+	perl-config-inifiles \
+	perl-ipc-system-simple \
+	perl-sub-override \
+	perl-cgi
+
     # apache-mod-fcgid and php83-apache2 each drop their own pre-activated
     # snippet into /etc/apache2/conf.d/ on install and httpd.conf
     # IncludeOptional-s the whole directory -- there's no Ubuntu-style
@@ -238,6 +196,49 @@ else
 </IfModule>
 EOF
 fi
+
+# check ssl state of git from ENV due to systems with proxy MITM / SSL Inspection.
+# Only disable SSL verify if GIT_SSL_VERIFY is set to false
+if [ "$GIT_SSL_VERIFY" = "false" ]; then
+    echo "git ssl verify is flagged to be disabled"
+    git config --global http.sslVerify false
+fi
+
+# clone this repository at the revision under test. Defaults to master so a
+# plain `docker build .` behaves as before; CI passes --build-arg
+# GIT_REF=<commit-or-branch> so a pull-request build actually tests the PR's
+# content instead of silently testing whatever is currently on master.
+GIT_REF="${GIT_REF:-master}"
+git clone https://github.com/mediocreatmybest/ROM-OH-MATIC.git /opt/rom-o-matic
+git -C /opt/rom-o-matic checkout "$GIT_REF"
+git -C /opt/rom-o-matic submodule update --init --recursive
+chown -R "$WWW_USER:$WWW_GROUP" /opt/rom-o-matic
+
+# Allow iPXE submodule to be updated due to change in ownership with submodules
+git config --global --add safe.directory /opt/rom-o-matic/ipxe
+git config --global --add safe.directory /opt/rom-o-matic
+
+#  Prepare iPXE directory
+# Note: build.fcgi's cache root and lockfile (see build.ini) live under
+# /var/cache/ipxe-build and /var/run/ipxe-build; its own scratch/worktree
+# directories use the system tmpdir (plain /tmp), not /var/tmp. An earlier
+# /var/tmp/ipxe-build here was dead weight -- created, then immediately
+# wiped by the later `rm -rf /tmp/* /var/tmp/*` cleanup step anyway, and
+# nothing ever read from it.
+mkdir -p \
+    /var/cache/ipxe-build \
+    /var/run/ipxe-build
+rm -rf \
+    /var/cache/ipxe-build/* \
+    /var/run/ipxe-build/*
+
+# Prepare the git iPXE repository
+touch /var/run/ipxe-build/ipxe-build-cache.lock
+chown -R "$WWW_USER:$WWW_GROUP" \
+    /var/run/ipxe-build/ipxe-build-cache.lock \
+    /var/cache/ipxe-build \
+    /var/run/ipxe-build \
+    /opt/rom-o-matic/ipxe
 
 # Move symlink creation to the end of build/install process
 rm -rf "$DOCROOT_LINK"
