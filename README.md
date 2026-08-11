@@ -23,21 +23,30 @@ The build.fcgi script is written in Perl and was wrote by Michael Brown.
 
 Named after the great ROM-O-MATIC website, this web interface simplifies building iPXE binaries, allowing users to select relevant iPXE build options, provide an embedded script, and generate the required output without building it manually from the command line.
 
+The advanced wizard additionally offers two optional certificate features, aimed at self-hosted deployments on a network you control:
+
+- **HTTPS certificate trust**: build iPXE to trust a private CA or self-signed certificate, for a PXE/HTTPS server that doesn't use a publicly-trusted one.
+- **Secure Boot signing and verification**: sign a built EFI binary with a Secure Boot key you already hold and have enrolled yourself, and check whether any EFI binary's signature matches a given public certificate. Nothing here generates, stores or enrols keys.
+
+Both can be removed from a deployment entirely -- see [`UI_REMOVE_CERT_FEATURE`](#additional) below.
+
 This repository is not part of, or endorsed by, the official [iPXE project](https://ipxe.org/), I don't have the necessary skills for that!
 
 ## Current status
 
 The Docker image is automatically built and published from `master`. Every build runs automated container startup, HTTP, and application-level iPXE generation tests before the image is published.
 
-| Capability                    | Current status                             |
-| ----------------------------- | ------------------------------------------ |
-| Docker image build            | Automated on pushes to `master`            |
-| Docker image publication      | Automated as part of the current build job |
-| Container startup test        | ✅                                         |
-| HTTP response test            | ✅                                         |
-| iPXE artefact generation test | ✅                                         |
-| Published platform            | `linux/amd64`                              |
-| Current container base        | Ubuntu 24.04 LTS                           |
+| Capability                        | Current status                             |
+| --------------------------------- | ------------------------------------------ |
+| Docker image build                | Automated on pushes to `master`            |
+| Docker image publication          | Automated as part of the current build job |
+| Container startup test            | ✅                                         |
+| HTTP response test                | ✅                                         |
+| iPXE artefact generation test     | ✅                                         |
+| Certificate trust build test      | ✅                                         |
+| Secure Boot sign and verify test  | ✅                                         |
+| Published platform                | `linux/amd64`                              |
+| Current container base            | Ubuntu 24.04 LTS                           |
 
 A green build badge means the image built, started successfully, responded over HTTP, and produced a working iPXE artefact, before being published.
 
