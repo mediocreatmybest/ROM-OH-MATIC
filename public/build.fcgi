@@ -1081,13 +1081,19 @@ while ( 1 ) {
   # Perform build
   ( my $outfh, my $binary ) = eval { build ( $cgi ) };
   my $build_error = $@;
-  warn $build_error if $build_error;
 
-  # Restore STDOUT and STDERR
+  # Restored before warn(), not after: this was previously written to
+  # $logfh -- alongside the build's own output, which is deliberately
+  # captured there to be replayed into the failure response below -- so
+  # it never reached this process's real STDERR, invisible in
+  # `docker logs` unless a request happened to fail in a way that still
+  # let this code run at all.
   close STDOUT;
   open STDOUT, ">&", $origstdout or die "Could not restore STDOUT: $!\n";
   close STDERR;
   open STDERR, ">&", $origstderr or die "Could not restore STDERR: $!\n";
+
+  warn $build_error if $build_error;
 
   # Send output to client
   if ( $outfh ) {

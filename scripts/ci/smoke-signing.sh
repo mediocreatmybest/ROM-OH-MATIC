@@ -88,10 +88,22 @@ echo "Response: ${response}"
 echo "$response" | grep -q '"verified":true' || {
   echo "verify.fcgi did not report a match for the correct certificate"
   diagnostic_snapshot "immediately after the failed request above"
-  echo "-- container logs --"
-  docker logs "$container" 2>&1 | tail -40 || true
+  # Untruncated -- a tail here previously let the periodic health-check
+  # GETs (one every 30s) push a real error line for this exact failure
+  # out of the captured window.
+  echo "-- container logs (untruncated) --"
+  docker logs "$container" 2>&1 || true
   echo "-- host kernel log: OOM/kill activity --"
-  sudo dmesg 2>&1 | grep -iE 'killed process|out of memory|oom' | tail -20 || echo "(no matching dmesg lines, or dmesg unavailable)"
+  if dmesg_output=$(sudo dmesg 2>&1); then
+    matches=$(printf '%s\n' "$dmesg_output" | grep -iE 'killed process|out of memory|oom')
+    if [ -n "$matches" ]; then
+      printf '%s\n' "$matches" | tail -20
+    else
+      echo "dmesg ran cleanly -- no OOM/kill lines found"
+    fi
+  else
+    echo "dmesg itself failed or is unavailable on this runner (exit $?)"
+  fi
   exit 1
 }
 echo "$response" | grep -q '"reason":"match"' || {

@@ -280,16 +280,24 @@ while ( 1 ) {
   }
 
   my $result = eval { verify ( $cgi ) };
-  if ( $@ ) {
-    warn $@;
-    $result = { verified => JSON::PP::false, reason => "error",
-		message => "Could not check this file." };
-  }
+  my $verify_error = $@;
 
+  # Restored before acting on $verify_error, not after: the warn() below
+  # was previously landing in $logfh, alongside verify()'s own build/debug
+  # noise, rather than in this process's real STDERR -- invisible in
+  # `docker logs` unless something downstream happened to dump the file
+  # first. Whatever verify() failed on is exactly what a caller trying to
+  # diagnose a bad response needs to see.
   close STDOUT;
   open STDOUT, ">&", $origstdout or die "Could not restore STDOUT: $!\n";
   close STDERR;
   open STDERR, ">&", $origstderr or die "Could not restore STDERR: $!\n";
+
+  if ( $verify_error ) {
+    warn $verify_error;
+    $result = { verified => JSON::PP::false, reason => "error",
+		message => "Could not check this file." };
+  }
 
   my $status = $result->{error} ? "400 Bad Request" : "200 OK";
   respond ( $fcgiout, $cgi, $status, $result );
