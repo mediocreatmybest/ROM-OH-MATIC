@@ -156,8 +156,12 @@ jobs:
       # This covers what a plain `docker run` of the published image
       # actually does -- the default nobody has to opt into, and therefore
       # the one worth proving stays off.
+      # Passed explicitly: this script starts its own container rather than
+      # reusing the shared one, so it needs to be told which image to run.
+      # Its own default is the untagged-by-OS ":test" name this workflow
+      # stopped building once the matrix made one tag per OS.
       - name: Smoke-test the default-off certificate state
-        run: bash scripts/ci/smoke-cert-disabled.sh
+        run: bash scripts/ci/smoke-cert-disabled.sh "${{ env.IMAGE_NAME }}:test-${{ matrix.target_os }}"
 
       - name: Print container logs on failure
         if: failure()

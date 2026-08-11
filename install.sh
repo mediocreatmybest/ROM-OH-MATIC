@@ -80,8 +80,15 @@ else
     # installed here rather than rewritten to plain POSIX sh.
     apk add --no-cache bash
 
+    # coreutils: iPXE's crypto/rootcert build rule splits a PEM bundle with
+    # csplit, which busybox does not implement at all -- without it a
+    # certificate-trust build (TRUST=...) dies with "csplit: No such file or
+    # directory" and then an unhelpful "No rule to make target
+    # bin-*/.certificate.pem.1". Plain and signed builds don't touch that
+    # rule, so this only shows up on the trust path. Ubuntu's coreutils is
+    # part of its base image already.
     apk add --no-cache \
-	build-base \
+	build-base coreutils \
 	iasl mtools perl python3 \
 	subversion util-linux-dev xz-dev
 
