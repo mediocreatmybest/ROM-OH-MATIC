@@ -106,8 +106,17 @@ EXPOSE 22 80
 
 # Keep the package repository current if this image is used as a base build
 # https://docs.docker.com/engine/reference/builder/#onbuild
-ONBUILD RUN if [ "$TARGET_OS" = "ubuntu" ]; then apt-get update && apt-get -yq upgrade; else apk update && apk upgrade; fi
-ONBUILD RUN if [ "$TARGET_OS" = "ubuntu" ]; then apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*; else rm -rf /var/cache/apk/* /tmp/* /var/tmp/*; fi
+#
+# One ONBUILD, not two: each becomes its own layer in the descendant image,
+# so upgrading in one and cleaning in the next left the caches shipping in
+# the descendant regardless -- the same trap as the build stages above.
+# Alpine needs no cache removal at all once `apk upgrade` is --no-cache.
+ONBUILD RUN if [ "$TARGET_OS" = "ubuntu" ]; then \
+      apt-get update && apt-get -yq upgrade \
+      && apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*; \
+    else \
+      apk upgrade --no-cache && rm -rf /tmp/* /var/tmp/*; \
+    fi
 
 # Set explicitly rather than trusting the checkout: a Windows clone with
 # core.fileMode=false drops the bit, and mod_fcgid exec's the .fcgi scripts
