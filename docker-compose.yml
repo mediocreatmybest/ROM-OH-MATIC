@@ -1,0 +1,50 @@
+# Two variants of the same app, built from the one Dockerfile via its
+# TARGET_OS build arg (see README.md). `docker compose up` runs Ubuntu --
+# no flag needed, since a service with no `profiles:` is always part of the
+# default set. Alpine only starts when asked for explicitly:
+#
+#   docker compose --profile alpine up alpine
+#
+# Naming the service on that command matters: `--profile alpine up` alone
+# would activate *and* start Ubuntu (still in the default set) at the same
+# time as Alpine. Distinct host ports below mean that's harmless if it ever
+# happens, but naming the service is the deliberate way to get just one.
+#
+# Both services build locally by default. To pull the published images
+# instead, use `docker compose pull ubuntu` / `pull alpine`, then
+# `up --no-build`.
+
+x-common: &common
+  environment:
+    GIT_SSL_VERIFY: ${GIT_SSL_VERIFY:-true}
+    UPDATE_ON_START: ${UPDATE_ON_START:-false}
+    ENABLE_SSH: ${ENABLE_SSH:-false}
+    UI_ENABLE_CERT_FEATURE: ${UI_ENABLE_CERT_FEATURE:-false}
+    # Only read when ENABLE_SSH=true; see README.md.
+    SSH_AUTHORIZED_KEY: ${SSH_AUTHORIZED_KEY:-}
+    SSH_ROOT_PASSWORD: ${SSH_ROOT_PASSWORD:-}
+  restart: unless-stopped
+
+services:
+  ubuntu:
+    <<: *common
+    build:
+      context: .
+      args:
+        TARGET_OS: ubuntu
+    image: mediocreatmybest/ipxe-buildweb:latest
+    container_name: ipxe-buildweb
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+
+  alpine:
+    <<: *common
+    profiles: ["alpine"]
+    build:
+      context: .
+      args:
+        TARGET_OS: alpine
+    image: mediocreatmybest/ipxe-buildweb:latest-alpine
+    container_name: ipxe-buildweb-alpine
+    ports:
+      - "${HTTP_PORT_ALPINE:-8081}:80"

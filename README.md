@@ -46,7 +46,7 @@ The Docker image is automatically built and published from `master`. Every build
 | Certificate trust build test      | ✅                                         |
 | Secure Boot sign and verify test  | ✅                                         |
 | Published platform                | `linux/amd64`                              |
-| Current container base            | Ubuntu 24.04 LTS                           |
+| Container bases                   | Ubuntu 24.04 LTS (default), Alpine 3.20    |
 
 A green build badge means the image built, started successfully, responded over HTTP, and produced a working iPXE artefact, before being published.
 
@@ -66,6 +66,12 @@ Current tags are:
 
   ```bash
   docker pull mediocreatmybest/ipxe-buildweb:staging
+  ```
+
+- `latest-alpine` / `<full-git-commit-sha>-alpine` / `sha-<short-commit>-alpine` / `staging-alpine`: the same application, built on Alpine 3.20 instead of Ubuntu, under the same tests and pass/fail gate as their non-suffixed counterparts. Smaller image, otherwise equivalent -- same scripts, same feature set:
+
+  ```bash
+  docker pull mediocreatmybest/ipxe-buildweb:latest-alpine
   ```
 
 The published image currently targets `linux/amd64` only.
@@ -124,6 +130,33 @@ docker run --detach \
 ```
 
 `SSH_AUTHORIZED_KEY` (a public key) is preferred and gives key-only root login. `SSH_ROOT_PASSWORD` is available as a fallback if you'd rather use a password, but prefer the key where you can. Setting `ENABLE_SSH=true` without either one refuses to start `sshd` rather than falling back to anything insecure.
+
+## Run with Docker Compose
+
+`docker-compose.yml` builds the same two variants as the [Docker image](#docker-image) section above, from the same Dockerfile. Ubuntu is the default -- no flag needed:
+
+```bash
+docker compose up -d
+```
+
+Open <http://localhost:8080>. Alpine is opt-in, via its own profile -- name the service too, so only Alpine starts rather than Alpine *and* the still-default Ubuntu service:
+
+```bash
+docker compose --profile alpine up -d alpine
+```
+
+Open <http://localhost:8081> (a different port from Ubuntu's 8080, so both can run side by side if you ever want to compare them directly). Both build locally by default; to use the published images instead, pull first and skip the build:
+
+```bash
+docker compose pull ubuntu
+docker compose up -d --no-build
+```
+
+`ENABLE_SSH`, `UPDATE_ON_START`, `UI_ENABLE_CERT_FEATURE`, `GIT_SSL_VERIFY` and friends are all read from the environment the same way as the plain `docker run` examples above -- set them in a `.env` file next to `docker-compose.yml`, or on the command line:
+
+```bash
+UI_ENABLE_CERT_FEATURE=true docker compose up -d
+```
 
 ## Additional
 

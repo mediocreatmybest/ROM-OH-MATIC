@@ -46,7 +46,7 @@ use IO::File;
 use IO::Seekable;
 use IO::Compress::Gzip qw ( gzip $GzipError );
 use IPC::System::Simple qw ( systemx capturex );
-use POSIX qw ( nice strftime );
+use POSIX qw ( _exit nice strftime );
 use Sub::Override;
 use strict;
 use warnings;
@@ -443,7 +443,30 @@ sub start_gzip {
   cache_unlock();
 
   # Exit child
-  exit ( 0 );
+  #
+  # _exit(), not exit(): this process is a fork of the one still serving
+  # the request, so it shares that request's FCGI object. A normal exit()
+  # runs global destruction, and FCGI::DESTROY then *finishes the parent's
+  # request* -- from here, while the parent is still compiling. mod_fcgid
+  # sees the response stream end without headers, answers the client with
+  # its own generic 500, and the build goes on to complete perfectly into
+  # a connection nobody is listening to any more.
+  #
+  # Whoever finishes first wins, so this is a race and not a reliable
+  # failure. Compression usually finishes long after the response is
+  # already sent, which is why it went unnoticed; it surfaced on the
+  # slower Alpine build, where the final `make` after a cache-populating
+  # build still had ~50s to run when gzip finished. The main loop guards
+  # the same hazard for its own request children with a FCGI::DESTROY
+  # override (see the comment there); this is that hazard's other fork.
+  #
+  # Everything this child needs to clean up is done explicitly above
+  # (cache_unlock, the rename/unlink, undef $gzfh), so nothing of value
+  # is lost by skipping global destruction. Buffers are flushed by hand
+  # first, since _exit() will not do it.
+  STDOUT->flush();
+  STDERR->flush();
+  _exit ( 0 );
 }
 
 ###############################################################################
@@ -717,16 +740,29 @@ use constant SIGN_TIMEOUT_SECS   => 20;    # generous; sbsign on a few MB is
                                             # near-instant, so this only ever
                                             # catches something wedged
 
-sub sign_binary {
+# Every check sign_binary() makes on the request itself, with no side
+# effects, so it can also run before the build instead of only after it.
+#
+# sign_binary() necessarily runs once the binary exists. With these checks
+# living only there, a request that could never succeed -- a missing field,
+# a passphrase-protected key, signing asked for on a deployment that has it
+# switched off -- still paid for a full EFI compile before being told. That
+# is a minute of CPU spent on a request rejected purely on its own
+# contents, and a minute of the requester's time to learn they attached the
+# wrong file. It also made CI fail on the slower Alpine image, where those
+# rejections no longer fit inside smoke-signing.sh's 60s allowance.
+#
+# Returns true when signing was requested and everything checks out, false
+# when no signing material was supplied at all; dies otherwise.
+sub validate_signing_request {
   my $cgi = shift;
   my $keyContent = shift;
   my $certPem = shift;
   my $bindir = shift;
   my $binary = shift;
-  my $infile = shift;
 
-  return unless ( defined $keyContent && length $keyContent ) ||
-                ( defined $certPem && length $certPem );
+  return 0 unless ( defined $keyContent && length $keyContent ) ||
+                  ( defined $certPem && length $certPem );
 
   die "Secure Boot signing is not enabled on this deployment\n"
       unless cert_feature_enabled();
@@ -783,6 +819,26 @@ sub sign_binary {
   die "No PEM certificate block found in SIGN_CERT\n" unless @certBlocks;
   die "Only a single certificate is supported for signing; ".
       scalar ( @certBlocks )." were supplied\n" if @certBlocks > 1;
+
+  return 1;
+}
+
+sub sign_binary {
+  my $cgi = shift;
+  my $keyContent = shift;
+  my $certPem = shift;
+  my $bindir = shift;
+  my $binary = shift;
+  my $infile = shift;
+
+  # Re-validated here, not assumed: this is the security boundary, and it
+  # has to hold regardless of what any caller checked first. build() runs
+  # the same validation earlier purely to fail fast, and the checks are
+  # cheap.
+  return unless validate_signing_request ( $cgi, $keyContent, $certPem,
+					   $bindir, $binary );
+
+  my @certBlocks = pem_cert_blocks ( $certPem );
 
   # CLEANUP removes the staged key below the moment this request ends,
   # success or failure -- the same guarantee trust_cert()'s and embed()'s
@@ -909,6 +965,13 @@ sub build {
 
   # Parse TRUST_CERT, if present (custom certificate trust)
   ( my $trustfile, my $trustdirfh ) = trust_cert ( $cgi, $params );
+
+  # Check the signing request now rather than in sign_binary() below, which
+  # only runs once there is a binary to sign. Placed here because it is the
+  # earliest point where $bindir and $binary are both known and validated,
+  # and still before any compiling starts.
+  validate_signing_request ( $cgi, $signKeyContent, $signCertPem,
+			     $bindir, $binary );
 
   # Canonicalise git revision
   warn "Canonicalising revision ".$revision."...\n" if $verbosity > 1;

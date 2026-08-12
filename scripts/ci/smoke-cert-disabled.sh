@@ -14,6 +14,19 @@ container=rom-o-matic-smoke-default
 port=8090
 url="http://localhost:${port}"
 
+# Checked up front, and locally only: `docker run` on a missing local image
+# tries to pull it, so a wrong tag surfaces as a "manifest unknown" registry
+# error naming a tag that was never meant to exist remotely -- which reads
+# like a broken Docker Hub, not the passed-the-wrong-tag bug it actually is.
+# (It was: the per-OS build matrix renamed the built image to :test-<os> and
+# this script's caller kept asking for plain :test.)
+if ! docker image inspect "$image" >/dev/null 2>&1; then
+  echo "Image '$image' is not present locally."
+  echo "Pass the image to test as the first argument, e.g.:"
+  echo "  bash $0 mediocreatmybest/ipxe-buildweb:test-ubuntu"
+  exit 1
+fi
+
 cleanup() {
   docker rm --force "$container" >/dev/null 2>&1 || true
 }

@@ -24,8 +24,12 @@ env:
 
 jobs:
   test:
-    name: Test
+    name: Test (${{ matrix.target_os }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target_os: [ubuntu, alpine]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -84,9 +88,12 @@ jobs:
           build-args: |
             GIT_REF=${{ steps.rev.outputs.ref }}
             IPXE_REVISION=${{ steps.ipxe.outputs.revision }}
-          tags: ${{ env.IMAGE_NAME }}:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            TARGET_OS=${{ matrix.target_os }}
+          tags: ${{ env.IMAGE_NAME }}:test-${{ matrix.target_os }}
+          # Scoped per OS -- an Ubuntu and an Alpine build share almost no
+          # layers, so one cache key for both would just evict itself.
+          cache-from: type=gha,scope=${{ matrix.target_os }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target_os }}
 
       # UI_ENABLE_CERT_FEATURE is off in the image by default, so the
       # certificate-trust and Secure Boot tests below would have nothing to
@@ -98,7 +105,7 @@ jobs:
             --publish 8080:80 \
             --env UI_ENABLE_CERT_FEATURE=true \
             --name rom-o-matic-smoke \
-            ${{ env.IMAGE_NAME }}:test
+            ${{ env.IMAGE_NAME }}:test-${{ matrix.target_os }}
 
       # build.ini ships concurrency=16 for `make -jN`, sized for a real
       # deployment box rather than a shared CI runner. Left at 16 here, a
@@ -149,8 +156,12 @@ jobs:
       # This covers what a plain `docker run` of the published image
       # actually does -- the default nobody has to opt into, and therefore
       # the one worth proving stays off.
+      # Passed explicitly: this script starts its own container rather than
+      # reusing the shared one, so it needs to be told which image to run.
+      # Its own default is the untagged-by-OS ":test" name this workflow
+      # stopped building once the matrix made one tag per OS.
       - name: Smoke-test the default-off certificate state
-        run: bash scripts/ci/smoke-cert-disabled.sh
+        run: bash scripts/ci/smoke-cert-disabled.sh "${{ env.IMAGE_NAME }}:test-${{ matrix.target_os }}"
 
       - name: Print container logs on failure
         if: failure()
@@ -161,9 +172,13 @@ jobs:
         run: docker rm --force rom-o-matic-smoke
 
   publish:
-    name: Publish image
+    name: Publish image (${{ matrix.target_os }})
     runs-on: ubuntu-latest
     needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        target_os: [ubuntu, alpine]
     # master/main and staging pushes can reach login/push; dev runs the
     # test job above and stops there, same as pull requests and manual
     # dispatch runs. Drop the master condition here once it's actually
@@ -190,23 +205,34 @@ jobs:
       # list are generated here rather than hard-coded. `latest` and the
       # full-SHA tag are kept exactly as before (README documents both);
       # sha-<short> is added as a friendlier addition, not a replacement.
+      # All three are Ubuntu's tags specifically -- Ubuntu is the existing
+      # default, so it keeps the bare names unchanged for anyone already
+      # pulling them. Alpine is the new, additional variant, so it gets its
+      # own tags with an -alpine suffix rather than displacing Ubuntu from
+      # the names people already depend on.
       #
-      # `staging` is a separate, always-moving tag for exactly this job's
-      # own staging pushes -- `docker pull ...:staging` gets something
-      # runnable to check before merging, without needing a local build or
-      # touching `latest`. `enable=` keeps the two tag sets mutually
-      # exclusive: a staging push never writes `latest`/the SHA tags, and
-      # a master/main push never writes `staging`.
+      # `staging`/`staging-alpine` are separate, always-moving tags for
+      # exactly this job's own staging pushes -- `docker pull ...:staging`
+      # gets something runnable to check before merging, without needing a
+      # local build or touching `latest`. `enable=` keeps every tag scoped
+      # to exactly one (branch, OS) combination: a staging push never
+      # writes `latest`/the SHA tags, a master/main push never writes
+      # `staging`, and each OS's tags only ever come from that OS's own
+      # matrix leg.
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
-            type=raw,value=${{ github.sha }},enable=${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
-            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
-            type=raw,value=staging,enable=${{ github.ref == 'refs/heads/staging' }}
+            type=raw,value=latest,enable=${{ matrix.target_os == 'ubuntu' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') }}
+            type=raw,value=latest-alpine,enable=${{ matrix.target_os == 'alpine' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') }}
+            type=raw,value=${{ github.sha }},enable=${{ matrix.target_os == 'ubuntu' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') }}
+            type=raw,value=${{ github.sha }}-alpine,enable=${{ matrix.target_os == 'alpine' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') }}
+            type=sha,prefix=sha-,format=short,enable=${{ matrix.target_os == 'ubuntu' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') }}
+            type=sha,prefix=sha-,suffix=-alpine,format=short,enable=${{ matrix.target_os == 'alpine' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') }}
+            type=raw,value=staging,enable=${{ matrix.target_os == 'ubuntu' && github.ref == 'refs/heads/staging' }}
+            type=raw,value=staging-alpine,enable=${{ matrix.target_os == 'alpine' && github.ref == 'refs/heads/staging' }}
           labels: |
             org.opencontainers.image.title=ROM-OH-MATIC
             org.opencontainers.image.description=Maintained fork of a prebuilt-binary web interface for building iPXE images
@@ -227,7 +253,8 @@ jobs:
           build-args: |
             GIT_REF=${{ github.sha }}
             IPXE_REVISION=${{ steps.ipxe.outputs.revision }}
+            TARGET_OS=${{ matrix.target_os }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.target_os }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target_os }}

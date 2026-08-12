@@ -1,4 +1,10 @@
 #!/bin/bash
+# WWW_OWNER, APACHE_MAIN_CONF and APACHE_FOREGROUND_CMD below all come from
+# this shared file (also sourced by install.sh at build time), so the two
+# scripts can't drift apart on what "ubuntu" or "alpine" actually means.
+# shellcheck source=scripts/os-env.sh disable=SC1091
+. /opt/rom-o-matic/scripts/os-env.sh
+
 # Start sshd for remote access, but only if explicitly enabled -- there is
 # no default password and no default root access. Prefer `docker exec` for
 # routine debugging; SSH is for cases that genuinely need it.
@@ -66,12 +72,13 @@ else
 	sed '/<!-- CERT_FEATURE:BEGIN/,/<!-- CERT_FEATURE:END -->/d' "$TEMPLATE" > "$INDEX"
 	rm -f "$CERT_FEATURE_FLAG"
 fi
-chown www-data:www-data "$INDEX"
+chown "$WWW_OWNER" "$INDEX"
 
-# Add ServerName to apache2.conf to avoid warning about fully qualified domain name.
-# Guarded so restarting an existing container doesn't keep appending it.
-if ! grep -q '^ServerName' /etc/apache2/apache2.conf; then
-	echo "ServerName localhost" >> /etc/apache2/apache2.conf
+# Add ServerName to the main Apache config to avoid warning about fully
+# qualified domain name. Guarded so restarting an existing container
+# doesn't keep appending it.
+if ! grep -q '^ServerName' "$APACHE_MAIN_CONF"; then
+	echo "ServerName localhost" >> "$APACHE_MAIN_CONF"
 fi
 
 # Send Apache's logs to the container's stdout/stderr instead of files
@@ -83,4 +90,4 @@ ln -sf /dev/stderr /var/log/apache2/error.log
 # a crashed Apache now stops the container instead of it staying alive via
 # `tail`. No more suppressing startup errors, either.
 echo "Starting apache2 in the foreground..."
-exec apachectl -D FOREGROUND
+exec "${APACHE_FOREGROUND_CMD[@]}"
