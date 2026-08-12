@@ -17,29 +17,30 @@
 # DOCKER-VERSION 1.0.0
 # VERSION 0.0.1
 
-# Which OS family to build on. Selects the FROM stage below and, via the
-# ENV TARGET_OS re-declared after it, every OS-specific branch in
-# install.sh and start.sh.
+# Selects the FROM stage below and, via the ENV re-declared after it, the
+# apt/apk branches in install.sh and start.sh.
 ARG TARGET_OS=ubuntu
 
 # ----------------------------------------------------------------------
 # Ubuntu base
 # ----------------------------------------------------------------------
-# Pinned to a specific LTS release rather than :latest -- ubuntu:latest can
-# resolve to a non-LTS interim release with an incomplete/broken package set
+# Pinned to an LTS release: ubuntu:latest can resolve to a non-LTS interim
+# release with an incomplete package set.
 FROM ubuntu:24.04 AS base-ubuntu
 
+# Package lists are removed in the same RUN that creates them. A later RUN
+# only whiteouts them -- the bytes still ship in this layer.
 RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections \
  && echo 'alias ll="ls -lah --color=auto"' >> /etc/bash.bashrc \
  && apt-get update \
  && apt-get -yq upgrade \
- && apt-get -yq install locales openssh-server \
+ && apt-get -yq install --no-install-recommends locales openssh-server \
  && locale-gen en_US.UTF-8 \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
-# Set after locale-gen above, which is passed the locale name explicitly and
-# so doesn't depend on these being in the environment yet.
+# After the RUN above: locale-gen is passed the locale explicitly and never
+# reads these.
 ENV LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8 \
     DISTRIBUTION_VERSION=24.04
@@ -49,11 +50,13 @@ ENV LANG=en_US.UTF-8 \
 # ----------------------------------------------------------------------
 FROM alpine:3.20 AS base-alpine
 
+# --no-cache fetches the index per operation and discards it, so nothing
+# persists in /var/cache/apk. bash: the scripts use bash-specific syntax and
+# Alpine ships busybox ash only.
 RUN apk upgrade --no-cache \
  && apk add --no-cache bash openssh-server
 
-# musl doesn't implement glibc-style locales (no locale-gen equivalent);
-# C.UTF-8 is always available and is the practical equivalent here.
+# musl has no glibc-style locales; C.UTF-8 is the practical equivalent.
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     DISTRIBUTION_VERSION=3.20
@@ -65,12 +68,13 @@ ENV LANG=C.UTF-8 \
 FROM base-${TARGET_OS}
 LABEL maintainer="Francois Lacroix <xbgmsharp@gmail.com>"
 
-# Re-declared: an ARG's value doesn't survive past the FROM that consumes
-# it unless declared again in the new stage.
+# Re-declared: an ARG's value doesn't survive the FROM that consumes it.
 ARG TARGET_OS=ubuntu
 ENV TARGET_OS=${TARGET_OS}
 
-# Set ENV
+# UPDATE_ON_START: frozen by default, so a tagged image runs the revision
+# baked in at build time. ENABLE_SSH / UI_ENABLE_CERT_FEATURE: off by
+# default; see start.sh and README.md.
 ENV HOME=/root \
     DEBIAN_FRONTEND=noninteractive \
     GIT_SSL_VERIFY=true \
@@ -80,57 +84,51 @@ ENV HOME=/root \
 
 RUN mkdir -p /run/sshd
 
-# Revision to check out inside the image. Defaults to master; CI overrides
-# this with the actual commit/PR being built so the image reflects the code
-# under test rather than always cloning master (see install.sh).
+# Revision to check out inside the image. CI overrides this with the commit
+# under test, so a PR build tests the PR (see install.sh).
 ARG GIT_REF=master
 
-# Add the install script and its shared TARGET_OS mapping (scripts/os-env.sh
-# is also sourced by start.sh later, from its normal place in the cloned
-# repo -- copied here too since /opt/rom-o-matic doesn't exist yet at this
-# point in the build).
+# os-env.sh is copied alongside install.sh because /opt/rom-o-matic does not
+# exist yet; start.sh later sources it from the cloned repo instead.
 COPY install.sh scripts/os-env.sh /tmp/
 
-# Install it all. TARGET_OS is already in the environment (set above), so
-# install.sh picks its apt/apk branch from that without any extra plumbing.
+# No chmod first -- install.sh is passed to bash, which ignores the execute
+# bit. The /tmp sweep rides along here so it costs no extra layer; install.sh
+# cleans its own package caches internally for the same reason.
 RUN bash /tmp/install.sh \
  && rm -rf /tmp/* /var/tmp/*
 
-# Define environment variables
 ENV PORT=80
 
-# Define working directory.
 WORKDIR /var/www/ipxe-buildweb
 
-# Expose ports.
 EXPOSE 22 80
 
-# Make sure the package repository is up to date if used as a base build
+# Keep the package repository current if this image is used as a base build
 # https://docs.docker.com/engine/reference/builder/#onbuild
 ONBUILD RUN if [ "$TARGET_OS" = "ubuntu" ]; then apt-get update && apt-get -yq upgrade; else apk update && apk upgrade; fi
 ONBUILD RUN if [ "$TARGET_OS" = "ubuntu" ]; then apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*; else rm -rf /var/cache/apk/* /tmp/* /var/tmp/*; fi
 
-# Set as execute with +x. options.php execs parseheaders.py directly, so it
-# needs the bit too -- don't rely on the mode surviving a checkout, since a
-# Windows clone with core.fileMode=false won't carry it.
+# Set explicitly rather than trusting the checkout: a Windows clone with
+# core.fileMode=false drops the bit, and mod_fcgid exec's the .fcgi scripts
+# directly -- a missing bit there fails every request as a bare Apache 500,
+# with nothing in any log. (This happened, with verify.fcgi.) options.php
+# exec's parseheaders.py directly for the same reason. Globbed so a future
+# .fcgi is covered automatically.
 RUN chmod +x \
       /opt/rom-o-matic/start.sh \
       /opt/rom-o-matic/update.sh \
       /opt/rom-o-matic/scripts/parseheaders.py \
       /opt/rom-o-matic/public/*.fcgi
 
-# Reflect whether the web service is actually responding, not just whether
-# the container process is alive. wget is present by default on both bases
-# (Ubuntu ships it standalone; Alpine's busybox includes a wget applet);
-# curl is not present on either.
+# Reflects whether the web service responds, not just whether the process is
+# alive. wget is present on both bases; curl is on neither.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -q -O /dev/null http://localhost:80/ || exit 1
 
-# Project-specific build metadata (standard OCI labels -- title, revision,
-# created, etc. -- are added by docker/metadata-action in the workflow
-# instead of hard-coded here). Populated by CI; a plain local `docker build .`
-# gets a sensible fallback rather than a hard failure. distribution.version
-# comes from the per-OS base stage above (24.04 for Ubuntu, 3.20 for Alpine).
+# Project-specific metadata; the standard OCI labels are added by
+# docker/metadata-action in the workflow. Defaults keep a plain local
+# `docker build .` working.
 ARG IPXE_REVISION=unknown
 LABEL org.rom-oh-matic.ipxe.revision="${IPXE_REVISION}" \
       org.rom-oh-matic.distribution="${TARGET_OS}" \
