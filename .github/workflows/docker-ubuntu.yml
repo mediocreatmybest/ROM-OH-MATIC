@@ -1,0 +1,247 @@
+name: Workflow Docker (Ubuntu)
+
+# Split from a single matrixed docker.yml so Ubuntu and Alpine each get their
+# own genuinely independent status badge -- a shared matrix workflow only
+# exposes one pass/fail status for the whole run, even with fail-fast:
+# false, so a green Ubuntu badge could previously be hiding a broken Alpine
+# leg (or vice versa). See docker-alpine.yml for the Alpine counterpart --
+# keep the two in sync when editing either.
+
+on:
+  push:
+    branches:
+      - master
+      - dev
+      # main and staging are the planned replacements for master and dev --
+      # kept side by side with the existing branches for now, to be removed
+      # once the rename actually happens.
+      - main
+      - staging
+  pull_request:
+    branches:
+      - master
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: mediocreatmybest/ipxe-buildweb
+  TARGET_OS: ubuntu
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Validate scripts
+        run: bash scripts/ci/validate.sh
+
+      - name: ShellCheck
+        uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          scandir: '.'
+          ignore_paths: ipxe
+
+      - name: Lint Dockerfile
+        uses: hadolint/hadolint-action@v3.3.0
+        with:
+          dockerfile: Dockerfile
+          # Only fail on genuine errors. hadolint's warning/info findings
+          # here are apt-version pinning and RUN-layer consolidation
+          # suggestions across the whole file -- worth doing, but a
+          # separate cleanup packet, not something this CI check should
+          # block every build over.
+          failure-threshold: error
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver: docker-container
+
+      # Build the exact commit under test rather than letting install.sh
+      # silently clone whatever is currently on master. On a pull_request
+      # event github.sha is a synthetic merge commit, so use the PR's own
+      # head commit instead.
+      - name: Resolve revision under test
+        id: rev
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Read iPXE submodule revision
+        id: ipxe
+        run: echo "revision=$(git -C ipxe rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          build-args: |
+            GIT_REF=${{ steps.rev.outputs.ref }}
+            IPXE_REVISION=${{ steps.ipxe.outputs.revision }}
+            TARGET_OS=${{ env.TARGET_OS }}
+          tags: ${{ env.IMAGE_NAME }}:test-${{ env.TARGET_OS }}
+          cache-from: type=gha,scope=${{ env.TARGET_OS }}
+          cache-to: type=gha,mode=max,scope=${{ env.TARGET_OS }}
+
+      # UI_ENABLE_CERT_FEATURE is off in the image by default, so the
+      # certificate-trust and Secure Boot tests below would have nothing to
+      # exercise without it. The shipped default is covered separately, by
+      # the default-off step further down.
+      - name: Start container
+        run: |
+          docker run --detach \
+            --publish 8080:80 \
+            --env UI_ENABLE_CERT_FEATURE=true \
+            --name rom-o-matic-smoke \
+            ${{ env.IMAGE_NAME }}:test-${{ env.TARGET_OS }}
+
+      # build.ini ships concurrency=16 for `make -jN`, sized for a real
+      # deployment box rather than a shared CI runner. Left at 16 here, a
+      # string of failures across this job -- always "the FastCGI worker
+      # died mid-request with no error text", never the same request twice
+      # (verify.fcgi's first call, then separately a build.fcgi call) --
+      # traced back to oversubscribed parallel compiles competing for
+      # memory. Overridden only inside this disposable container, not the
+      # image itself.
+      - name: Reduce build concurrency for this runner
+        run: docker exec rom-o-matic-smoke sed -i 's/^\( *\)concurrency=.*/\1concurrency=2/' /opt/rom-o-matic/build.ini
+
+      - name: Smoke-test HTTP endpoints
+        run: bash scripts/ci/smoke-endpoints.sh
+
+      - name: Smoke-test iPXE builds
+        run: bash scripts/ci/smoke-builds.sh
+
+      # smoke-signing.sh signs the same bindir/revision the certificate-
+      # trust build above just built. build.fcgi's own cache write finishes
+      # in a detached background process after the HTTP response already
+      # returned (see start_gzip() in build.fcgi); firing the next request
+      # before that settles found no valid cache tag yet and triggered a
+      # full second compile instead of a quick cache hit.
+      - name: Wait for background cache compression to settle
+        run: |
+          for i in $(seq 1 30); do
+            if ! docker exec rom-o-matic-smoke pgrep -x gzip >/dev/null 2>&1; then
+              echo "No gzip running after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "gzip still running after 30s -- continuing anyway"
+
+      # sbverify, used to independently re-check a signed binary from
+      # outside the container that produced it (see smoke-signing.sh) --
+      # the container has its own copy, but this proves the returned file
+      # verifies on its own merits, not just according to the code under
+      # test.
+      - name: Install sbsigntool
+        run: sudo apt-get update && sudo apt-get install --yes sbsigntool
+
+      - name: Smoke-test Secure Boot signing and verification
+        run: bash scripts/ci/smoke-signing.sh
+
+      # Everything above runs with the certificate features switched on.
+      # This covers what a plain `docker run` of the published image
+      # actually does -- the default nobody has to opt into, and therefore
+      # the one worth proving stays off.
+      # Passed explicitly: this script starts its own container rather than
+      # reusing the shared one, so it needs to be told which image to run.
+      # Its own default is the untagged-by-OS ":test" name this workflow
+      # stopped building once the matrix made one tag per OS.
+      - name: Smoke-test the default-off certificate state
+        run: bash scripts/ci/smoke-cert-disabled.sh "${{ env.IMAGE_NAME }}:test-${{ env.TARGET_OS }}"
+
+      - name: Print container logs on failure
+        if: failure()
+        run: docker logs rom-o-matic-smoke
+
+      - name: Clean up test container
+        if: always()
+        run: docker rm --force rom-o-matic-smoke
+
+  publish:
+    name: Publish image
+    runs-on: ubuntu-latest
+    needs: test
+    # master/main and staging pushes can reach login/push; dev runs the
+    # test job above and stops there, same as pull requests and manual
+    # dispatch runs. Drop the master condition here once it's actually
+    # renamed to main. Which tags actually get written is decided per-tag
+    # in the metadata step below -- staging never touches `latest` or the
+    # SHA tags, and master/main never writes `staging`.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+        with:
+          driver: docker-container
+
+      - name: Read iPXE submodule revision
+        id: ipxe
+        run: echo "revision=$(git -C ipxe rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # Standard OCI labels (revision, created, source, url) and the tag
+      # list are generated here rather than hard-coded. `latest` and the
+      # full-SHA tag are kept exactly as before (README documents both);
+      # sha-<short> is added as a friendlier addition, not a replacement.
+      #
+      # `staging` is a separate, always-moving tag for exactly this job's
+      # own staging pushes -- `docker pull ...:staging` gets something
+      # runnable to check before merging, without needing a local build or
+      # touching `latest`. `enable=` keeps every tag scoped to exactly one
+      # branch: a staging push never writes `latest`/the SHA tags, and a
+      # master/main push never writes `staging`.
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
+            type=raw,value=${{ github.sha }},enable=${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
+            type=raw,value=staging,enable=${{ github.ref == 'refs/heads/staging' }}
+          labels: |
+            org.opencontainers.image.title=ROM-OH-MATIC
+            org.opencontainers.image.description=Maintained fork of a prebuilt-binary web interface for building iPXE images
+            org.opencontainers.image.licenses=GPL-3.0-or-later
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            GIT_REF=${{ github.sha }}
+            IPXE_REVISION=${{ steps.ipxe.outputs.revision }}
+            TARGET_OS=${{ env.TARGET_OS }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ env.TARGET_OS }}
+          cache-to: type=gha,mode=max,scope=${{ env.TARGET_OS }}

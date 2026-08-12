@@ -14,9 +14,11 @@ The user interface is using HTML, CSS, and plain JavaScript (no frameworks or bu
 All GUI options (git version/nics list/compile options) are generated dynamically using PHP.
 The build.fcgi script is written in Perl and was wrote by Michael Brown.
 
-[![Docker build](https://github.com/mediocreatmybest/ROM-OH-MATIC/actions/workflows/docker.yml/badge.svg?branch=master)](https://github.com/mediocreatmybest/ROM-OH-MATIC/actions/workflows/docker.yml)
+[![Docker build (Ubuntu)](https://github.com/mediocreatmybest/ROM-OH-MATIC/actions/workflows/docker-ubuntu.yml/badge.svg?branch=master)](https://github.com/mediocreatmybest/ROM-OH-MATIC/actions/workflows/docker-ubuntu.yml)
+[![Docker build (Alpine)](https://github.com/mediocreatmybest/ROM-OH-MATIC/actions/workflows/docker-alpine.yml/badge.svg?branch=master)](https://github.com/mediocreatmybest/ROM-OH-MATIC/actions/workflows/docker-alpine.yml)
 [![Docker pulls](https://img.shields.io/docker/pulls/mediocreatmybest/ipxe-buildweb)](https://hub.docker.com/r/mediocreatmybest/ipxe-buildweb)
-[![Docker image size](https://img.shields.io/docker/image-size/mediocreatmybest/ipxe-buildweb/latest)](https://hub.docker.com/r/mediocreatmybest/ipxe-buildweb/tags)
+[![Docker image size (Ubuntu)](https://img.shields.io/docker/image-size/mediocreatmybest/ipxe-buildweb/latest?label=image%20size%20%28ubuntu%29)](https://hub.docker.com/r/mediocreatmybest/ipxe-buildweb/tags)
+[![Docker image size (Alpine)](https://img.shields.io/docker/image-size/mediocreatmybest/ipxe-buildweb/latest-alpine?label=image%20size%20%28alpine%29)](https://hub.docker.com/r/mediocreatmybest/ipxe-buildweb/tags)
 
 > [!NOTE]
 > This is a maintenance fork of [xbgmsharp/ipxe-buildweb](https://github.com/xbgmsharp/ipxe-buildweb), kept moving while the upstream repository is quiet. The intention is to preserve a working build, not to replace the original project. If the upstream becomes active again, the repository will be archived, rather than maintaining two versions for the fun of it.
@@ -38,8 +40,8 @@ The Docker image is automatically built and published from `master`. Every build
 
 | Capability                        | Current status                             |
 | --------------------------------- | ------------------------------------------ |
-| Docker image build                | Automated on pushes to `master`            |
-| Docker image publication          | Automated as part of the current build job |
+| Docker image build                | Automated on pushes to `master`, Ubuntu and Alpine built independently |
+| Docker image publication          | Automated as part of each build's own workflow |
 | Container startup test            | ✅                                         |
 | HTTP response test                | ✅                                         |
 | iPXE artefact generation test     | ✅                                         |
@@ -48,7 +50,7 @@ The Docker image is automatically built and published from `master`. Every build
 | Published platform                | `linux/amd64`                              |
 | Container bases                   | Ubuntu 24.04 LTS (default), Alpine 3.20    |
 
-A green build badge means the image built, started successfully, responded over HTTP, and produced a working iPXE artefact, before being published.
+A green build badge means that variant's image built, started successfully, responded over HTTP, and produced a working iPXE artefact, before being published. Ubuntu and Alpine build and publish independently, so one badge can be green while the other is red.
 
 ## Docker image
 
@@ -82,9 +84,36 @@ Each image also carries standard [OCI labels](https://github.com/opencontainers/
 docker inspect mediocreatmybest/ipxe-buildweb:latest --format '{{json .Config.Labels}}'
 ```
 
-## Run with Docker
+## Run with Docker Compose
 
-After [installing Docker](https://docs.docker.com/engine/install/), pull and run the maintained image:
+The simplest way to get running: `docker-compose.yml` covers both published variants from the same Dockerfile, without composing a `docker run` command by hand. Ubuntu is the default -- no flag needed:
+
+```bash
+docker compose up -d
+```
+
+Open <http://localhost:8080>. Alpine is opt-in, via its own profile -- name the service too, so only Alpine starts rather than Alpine *and* the still-default Ubuntu service:
+
+```bash
+docker compose --profile alpine up -d alpine
+```
+
+Open <http://localhost:8081> (a different port from Ubuntu's 8080, so both can run side by side if you ever want to compare them directly). Both build locally by default; to use the published images instead, pull first and skip the build:
+
+```bash
+docker compose pull ubuntu
+docker compose up -d --no-build
+```
+
+`ENABLE_SSH`, `UPDATE_ON_START`, `UI_ENABLE_CERT_FEATURE`, `GIT_SSL_VERIFY` and friends are all read from the environment -- set them in a `.env` file next to `docker-compose.yml`, or on the command line:
+
+```bash
+UI_ENABLE_CERT_FEATURE=true docker compose up -d
+```
+
+## Run with plain `docker run`
+
+Compose above is the easier path for most people. If you'd rather not have a `docker-compose.yml` in the mix -- a one-off test, scripting a deploy yourself, no Compose installed -- the same image runs fine on its own. After [installing Docker](https://docs.docker.com/engine/install/):
 
 ```bash
 docker pull mediocreatmybest/ipxe-buildweb:latest
@@ -130,33 +159,6 @@ docker run --detach \
 ```
 
 `SSH_AUTHORIZED_KEY` (a public key) is preferred and gives key-only root login. `SSH_ROOT_PASSWORD` is available as a fallback if you'd rather use a password, but prefer the key where you can. Setting `ENABLE_SSH=true` without either one refuses to start `sshd` rather than falling back to anything insecure.
-
-## Run with Docker Compose
-
-`docker-compose.yml` builds the same two variants as the [Docker image](#docker-image) section above, from the same Dockerfile. Ubuntu is the default -- no flag needed:
-
-```bash
-docker compose up -d
-```
-
-Open <http://localhost:8080>. Alpine is opt-in, via its own profile -- name the service too, so only Alpine starts rather than Alpine *and* the still-default Ubuntu service:
-
-```bash
-docker compose --profile alpine up -d alpine
-```
-
-Open <http://localhost:8081> (a different port from Ubuntu's 8080, so both can run side by side if you ever want to compare them directly). Both build locally by default; to use the published images instead, pull first and skip the build:
-
-```bash
-docker compose pull ubuntu
-docker compose up -d --no-build
-```
-
-`ENABLE_SSH`, `UPDATE_ON_START`, `UI_ENABLE_CERT_FEATURE`, `GIT_SSL_VERIFY` and friends are all read from the environment the same way as the plain `docker run` examples above -- set them in a `.env` file next to `docker-compose.yml`, or on the command line:
-
-```bash
-UI_ENABLE_CERT_FEATURE=true docker compose up -d
-```
 
 ## Additional
 
