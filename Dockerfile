@@ -27,28 +27,23 @@ ARG TARGET_OS=ubuntu
 # ----------------------------------------------------------------------
 # Ubuntu base
 # ----------------------------------------------------------------------
-# Pinned to a specific LTS release rather than :latest -- ubuntu:latest can
-# resolve to a non-LTS interim release with an incomplete/broken package set,
-# which isn't something a Docker build should be at the mercy of.
+# Pinned to a specific LTS release / 
+# Lets clean some of this up, simplifying these into single layers.
 FROM ubuntu:24.04 AS base-ubuntu
 
-RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
-RUN echo 'alias ll="ls -lah --color=auto"' >> /etc/bash.bashrc
+ENV LANG=en_US.utf8 \
+    LC_ALL=en_US.UTF-8 \
+    DISTRIBUTION_VERSION=24.04
 
-RUN apt-get update && apt-get -yq upgrade
-
-RUN apt-get -qqy install locales
-ENV LANG=en_US.utf8
-ENV LC_ALL=en_US.UTF-8
-RUN locale-gen en_US.UTF-8
-
-# SSH is off by default -- no hard-coded password, no default root access.
-# The server is always present (keeps this a single image rather than a
-# separate SSH-enabled variant), but start.sh only launches and configures
-# it when ENABLE_SSH is explicitly turned on.
-RUN apt-get install -y openssh-server
-
-ENV DISTRIBUTION_VERSION=24.04
+RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections \
+    && echo 'alias ll="ls -lah --color=auto"' >> /etc/bash.bashrc \
+    && apt-get update \
+    && apt-get -yq upgrade \
+    && apt-get install -y --no-install-recommends \
+        locales \
+        openssh-server \
+    && locale-gen en_US.UTF-8 \
+    && rm -rf /var/lib/apt/lists/*
 
 # ----------------------------------------------------------------------
 # Alpine base
