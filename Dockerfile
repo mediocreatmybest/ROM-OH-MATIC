@@ -118,11 +118,12 @@ RUN if [ "$TARGET_OS" = "ubuntu" ]; then \
 ONBUILD RUN if [ "$TARGET_OS" = "ubuntu" ]; then apt-get update && apt-get -yq upgrade; else apk update && apk upgrade; fi
 ONBUILD RUN if [ "$TARGET_OS" = "ubuntu" ]; then apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*; else rm -rf /var/cache/apk/* /tmp/* /var/tmp/*; fi
 
-
-RUN chmod +x /opt/rom-o-matic/start.sh \
-    && chmod +x /opt/rom-o-matic/update.sh \
-    && chmod +x /opt/rom-o-matic/scripts/parseheaders.py \
-    && chmod +x /opt/rom-o-matic/public/*.fcgi
+# Run this as a single command. 
+RUN chmod +x \
+      /opt/rom-o-matic/start.sh \
+      /opt/rom-o-matic/update.sh \
+      /opt/rom-o-matic/scripts/parseheaders.py \
+      /opt/rom-o-matic/public/*.fcgi
 
 # Allow iPXE submodule to be updated due to change in ownership with submodules
 RUN git config --global --add safe.directory /opt/rom-o-matic/ipxe
