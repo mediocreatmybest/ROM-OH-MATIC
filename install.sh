@@ -65,18 +65,21 @@ if [ "$TARGET_OS" = "ubuntu" ]; then
     apt-get -yq install \
 	sbsigntool
 
-    # Alpine needs no equivalent: its `apk add --no-cache` calls below never
-    # write an index in the first place.
+    # Cleaned here, in the same shell and therefore the same Docker layer as
+    # the installs above -- a later RUN would only whiteout the bytes, not
+    # remove them from the image. Nothing after this installs packages.
     apt-get clean
     rm -rf /var/lib/apt/lists/*
 else
-    # --no-cache fetches the package index for each operation and discards it
+    # --no-cache fetches the index per operation and discards it, so no
+    # `apk update` is wanted here -- that would leave one behind for nothing.
     apk add --no-cache git
-    # Alpine ships no shell but busybox ash by default. install.sh,
-    # start.sh and update.sh all use bash-specific syntax, so bash is
-    # installed here rather than rewritten to plain POSIX sh.
+    # The scripts use bash-specific syntax; Alpine ships busybox ash only.
     apk add --no-cache bash
 
+    # coreutils: iPXE's rootcert rule splits a PEM bundle with csplit, which
+    # busybox lacks -- without it, only certificate-trust builds fail, and
+    # obscurely. Ubuntu has it in the base image.
     apk add --no-cache \
 	build-base coreutils \
 	iasl mtools perl python3 \
@@ -118,6 +121,8 @@ else
     apk add --no-cache \
 	sbsigntool
 
+    # build.fcgi and verify.fcgi shell out to the openssl CLI. Ubuntu ships
+    # it; Alpine's base image has only busybox applets, none of which is it.
     apk add --no-cache \
 	openssl
 fi
