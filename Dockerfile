@@ -50,21 +50,14 @@ RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selectio
 # ----------------------------------------------------------------------
 FROM alpine:3.20 AS base-alpine
 
-RUN apk update && apk upgrade
-# Alpine ships busybox ash only; install.sh/start.sh/update.sh use
-# bash-specific syntax, so bash is added rather than the scripts rewritten.
-RUN apk add --no-cache bash
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    DISTRIBUTION_VERSION=3.20
 
-# musl doesn't implement glibc-style locales (no locale-gen equivalent);
-# C.UTF-8 is always available and is the practical equivalent here.
-ENV LANG=C.UTF-8
-ENV LC_ALL=C.UTF-8
-
-# See the Ubuntu stage above -- same off-by-default SSH story, Alpine's own
-# package name for it.
-RUN apk add --no-cache openssh-server
-
-ENV DISTRIBUTION_VERSION=3.20
+RUN apk upgrade --no-cache \
+    && apk add --no-cache \
+        bash \
+        openssh-server
 
 # ----------------------------------------------------------------------
 # Selected base -- everything from here down is OS-agnostic application
