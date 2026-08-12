@@ -8,3 +8,28 @@ updates:
       github-actions:
         patterns:
           - "*"
+
+  # Base images in the Dockerfile (ubuntu and alpine). Alpine 3.20 reached
+  # end of support on 2026-04-01 and sat unnoticed until a review caught it;
+  # this is the check that would have raised it as a PR at the time.
+  #
+  # Grouped and weekly to keep it to one PR: every Dependabot PR here costs
+  # two full image builds (both OS workflows run on pull_request), and the
+  # iPXE compile in them is not cheap.
+  #
+  # Review Ubuntu bumps by hand before merging. The Dockerfile pins an LTS
+  # deliberately, and Dependabot has no notion of which tags are LTS -- it
+  # will happily offer a non-LTS interim release, which is exactly what the
+  # pin exists to avoid.
+  #
+  # The ipxe submodule is deliberately not tracked here (no gitsubmodule
+  # ecosystem): it moves constantly and is pinned on purpose, so it would
+  # mean a weekly PR to close every time.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      docker:
+        patterns:
+          - "*"

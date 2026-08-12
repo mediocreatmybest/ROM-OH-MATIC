@@ -302,7 +302,7 @@ onReady(function() {
                         controlWrap.appendChild(input);
                         var link = document.createElement('a');
                         link.className = 'help_buildcfg';
-                        link.href = 'http://www.ipxe.org/buildcfg/' + name;
+                        link.href = 'https://www.ipxe.org/buildcfg/' + name;
                         link.target = '_blank';
                         link.textContent = name;
                         controlWrap.appendChild(link);
