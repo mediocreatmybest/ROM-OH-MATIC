@@ -32,21 +32,29 @@ ARG TARGET_OS=ubuntu
 # which isn't something a Docker build should be at the mercy of.
 FROM ubuntu:24.04 AS base-ubuntu
 
-RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
-RUN echo 'alias ll="ls -lah --color=auto"' >> /etc/bash.bashrc
+# One RUN rather than the five this used to be. Two reasons, both about
+# size: each RUN was its own layer, and -- more importantly -- apt's package
+# lists were never cleaned, so every one of those layers carried its own
+# copy. Cleaning has to happen in the same RUN as the install to save
+# anything; a later RUN only writes whiteouts over bytes the layer below
+# still ships. openssh-server is here for the same reason it always was:
+# SSH is off by default -- no hard-coded password, no default root access,
+# the server is merely present (keeping this one image rather than a
+# separate SSH-enabled variant) and start.sh only launches and configures it
+# when ENABLE_SSH is explicitly turned on.
+RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections \
+ && echo 'alias ll="ls -lah --color=auto"' >> /etc/bash.bashrc \
+ && apt-get update \
+ && apt-get -yq upgrade \
+ && apt-get -yq install locales openssh-server \
+ && locale-gen en_US.UTF-8 \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && apt-get -yq upgrade
-
-RUN apt-get -qqy install locales
+# Set after locale-gen above, which is passed the locale name explicitly and
+# so doesn't depend on these being in the environment yet.
 ENV LANG=en_US.utf8
 ENV LC_ALL=en_US.UTF-8
-RUN locale-gen en_US.UTF-8
-
-# SSH is off by default -- no hard-coded password, no default root access.
-# The server is always present (keeps this a single image rather than a
-# separate SSH-enabled variant), but start.sh only launches and configures
-# it when ENABLE_SSH is explicitly turned on.
-RUN apt-get install -y openssh-server
 
 ENV DISTRIBUTION_VERSION=24.04
 
@@ -55,19 +63,23 @@ ENV DISTRIBUTION_VERSION=24.04
 # ----------------------------------------------------------------------
 FROM alpine:3.20 AS base-alpine
 
-RUN apk update && apk upgrade
-# Alpine ships busybox ash only; install.sh/start.sh/update.sh use
+# --no-cache throughout, including on the upgrade: it fetches the index for
+# each operation and discards it, so nothing persists in /var/cache/apk and
+# there is no cleanup step to forget. The bare `apk update` this used to
+# start with did the opposite -- it left an index behind for no benefit,
+# since every apk call here supplies --no-cache anyway.
+#
+# bash: Alpine ships busybox ash only, and install.sh/start.sh/update.sh use
 # bash-specific syntax, so bash is added rather than the scripts rewritten.
-RUN apk add --no-cache bash
+# openssh-server: see the Ubuntu stage above -- same off-by-default SSH
+# story, Alpine's own package name for it.
+RUN apk upgrade --no-cache \
+ && apk add --no-cache bash openssh-server
 
 # musl doesn't implement glibc-style locales (no locale-gen equivalent);
 # C.UTF-8 is always available and is the practical equivalent here.
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
-
-# See the Ubuntu stage above -- same off-by-default SSH story, Alpine's own
-# package name for it.
-RUN apk add --no-cache openssh-server
 
 ENV DISTRIBUTION_VERSION=3.20
 
@@ -118,12 +130,20 @@ ARG GIT_REF=master
 # repo -- copied here too since /opt/rom-o-matic doesn't exist yet at this
 # point in the build).
 COPY install.sh scripts/os-env.sh /tmp/
-RUN chmod +x /tmp/install.sh
 
 # Install it all. TARGET_OS is already in the environment (set above), so
 # install.sh picks its apt/apk branch from that without any extra plumbing.
-RUN \
-  bash /tmp/install.sh
+# No `chmod +x /tmp/install.sh` first: it's invoked as an argument to bash,
+# which never consults the execute bit, so that was a layer for nothing.
+#
+# The /tmp sweep rides along in this same RUN deliberately -- it removes the
+# two files COPYed just above, which only a command in this layer or later
+# can do, and folding it in here means it costs no extra layer. install.sh
+# does its own apt cleanup internally for the same same-layer reason; see
+# the comment there. start.sh sources os-env.sh from the cloned repo at
+# /opt/rom-o-matic/scripts/, not from this /tmp copy, so removing it is safe.
+RUN bash /tmp/install.sh \
+ && rm -rf /tmp/* /var/tmp/*
 
 # Define environment variables
 ENV PORT=80
@@ -134,12 +154,10 @@ WORKDIR /var/www/ipxe-buildweb
 # Expose ports.
 EXPOSE 22 80
 
-# Clean up package manager caches when done.
-RUN if [ "$TARGET_OS" = "ubuntu" ]; then \
-      apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*; \
-    else \
-      rm -rf /var/cache/apk/* /tmp/* /var/tmp/*; \
-    fi
+# (The package-manager cleanup that used to sit here has moved into the
+# install RUN above. As a standalone later RUN it saved nothing -- layers
+# are additive, so it only wrote whiteouts over caches the install layer
+# still shipped, while adding a layer of its own.)
 
 # Make sure the package repository is up to date if used as a base build
 # https://docs.docker.com/engine/reference/builder/#onbuild
@@ -160,13 +178,17 @@ ONBUILD RUN if [ "$TARGET_OS" = "ubuntu" ]; then apt-get clean && rm -rf /var/li
 # perl, so neither Apache nor Perl logs anything, and Apache answers with
 # its own generic 500. Globbed rather than named individually so a future
 # .fcgi is covered automatically.
-RUN chmod +x /opt/rom-o-matic/start.sh
-RUN chmod +x /opt/rom-o-matic/update.sh
-RUN chmod +x /opt/rom-o-matic/scripts/parseheaders.py
-RUN chmod +x /opt/rom-o-matic/public/*.fcgi
+RUN chmod +x \
+      /opt/rom-o-matic/start.sh \
+      /opt/rom-o-matic/update.sh \
+      /opt/rom-o-matic/scripts/parseheaders.py \
+      /opt/rom-o-matic/public/*.fcgi
 
-# Allow iPXE submodule to be updated due to change in ownership with submodules
-RUN git config --global --add safe.directory /opt/rom-o-matic/ipxe
+# (The `git config --global --add safe.directory /opt/rom-o-matic/ipxe` that
+# used to follow is gone: install.sh already sets it, for both the ipxe
+# submodule and the repo root, and runs as the same root user with the same
+# HOME=/root -- so it wrote the identical line to the identical
+# /root/.gitconfig, one layer earlier.)
 
 # Reflect whether the web service is actually responding, not just whether
 # the container process is alive. wget is present by default on both bases

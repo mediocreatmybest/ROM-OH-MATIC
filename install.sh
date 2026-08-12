@@ -69,11 +69,24 @@ if [ "$TARGET_OS" = "ubuntu" ]; then
     # and public/verify.fcgi.
     apt-get -yq install \
 	sbsigntool
+
+    # Drop apt's package lists here, in the same shell (and therefore the
+    # same Docker layer) as the installs above. Cleaning them from a later
+    # RUN, as the Dockerfile used to, saves nothing at all: layers are
+    # additive, so the ~40-60 MB of lists stays in this layer's tarball and
+    # is still pulled by every user, with the later layer only writing
+    # whiteout entries over it. Nothing after this point installs packages
+    # -- neither the rest of this script nor start.sh/update.sh at runtime
+    # -- so there is nothing left to re-`apt-get update` for.
+    # Alpine needs no equivalent: its `apk add --no-cache` calls below never
+    # write an index in the first place.
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
 else
-    # Alpine's index needs refreshing the same way apt's does; --no-cache
-    # skips the local package index cache entirely instead of needing a
-    # separate `rm -rf /var/cache/apk/*` cleanup step later.
-    apk update
+    # --no-cache fetches the package index for each operation and discards
+    # it, so there is deliberately no `apk update` here: it would not save
+    # these calls any work, and it is the one thing that would leave a
+    # persistent index behind in /var/cache/apk to have to clean up later.
     apk add --no-cache git
     # Alpine ships no shell but busybox ash by default. install.sh,
     # start.sh and update.sh all use bash-specific syntax, so bash is
