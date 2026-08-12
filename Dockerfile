@@ -19,29 +19,16 @@
 
 # Which OS family to build on. Selects the FROM stage below and, via the
 # ENV TARGET_OS re-declared after it, every OS-specific branch in
-# install.sh and start.sh. "ubuntu" is the long-standing default; "alpine"
-# is a smaller, musl-based alternative -- same application and scripts,
-# different package manager and a handful of Apache/path differences.
+# install.sh and start.sh.
 ARG TARGET_OS=ubuntu
 
 # ----------------------------------------------------------------------
 # Ubuntu base
 # ----------------------------------------------------------------------
 # Pinned to a specific LTS release rather than :latest -- ubuntu:latest can
-# resolve to a non-LTS interim release with an incomplete/broken package set,
-# which isn't something a Docker build should be at the mercy of.
+# resolve to a non-LTS interim release with an incomplete/broken package set
 FROM ubuntu:24.04 AS base-ubuntu
 
-# One RUN rather than the five this used to be. Two reasons, both about
-# size: each RUN was its own layer, and -- more importantly -- apt's package
-# lists were never cleaned, so every one of those layers carried its own
-# copy. Cleaning has to happen in the same RUN as the install to save
-# anything; a later RUN only writes whiteouts over bytes the layer below
-# still ships. openssh-server is here for the same reason it always was:
-# SSH is off by default -- no hard-coded password, no default root access,
-# the server is merely present (keeping this one image rather than a
-# separate SSH-enabled variant) and start.sh only launches and configures it
-# when ENABLE_SSH is explicitly turned on.
 RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections \
  && echo 'alias ll="ls -lah --color=auto"' >> /etc/bash.bashrc \
  && apt-get update \
@@ -53,35 +40,23 @@ RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selectio
 
 # Set after locale-gen above, which is passed the locale name explicitly and
 # so doesn't depend on these being in the environment yet.
-ENV LANG=en_US.utf8
-ENV LC_ALL=en_US.UTF-8
-
-ENV DISTRIBUTION_VERSION=24.04
+ENV LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8 \
+    DISTRIBUTION_VERSION=24.04
 
 # ----------------------------------------------------------------------
 # Alpine base
 # ----------------------------------------------------------------------
 FROM alpine:3.20 AS base-alpine
 
-# --no-cache throughout, including on the upgrade: it fetches the index for
-# each operation and discards it, so nothing persists in /var/cache/apk and
-# there is no cleanup step to forget. The bare `apk update` this used to
-# start with did the opposite -- it left an index behind for no benefit,
-# since every apk call here supplies --no-cache anyway.
-#
-# bash: Alpine ships busybox ash only, and install.sh/start.sh/update.sh use
-# bash-specific syntax, so bash is added rather than the scripts rewritten.
-# openssh-server: see the Ubuntu stage above -- same off-by-default SSH
-# story, Alpine's own package name for it.
 RUN apk upgrade --no-cache \
  && apk add --no-cache bash openssh-server
 
 # musl doesn't implement glibc-style locales (no locale-gen equivalent);
 # C.UTF-8 is always available and is the practical equivalent here.
-ENV LANG=C.UTF-8
-ENV LC_ALL=C.UTF-8
-
-ENV DISTRIBUTION_VERSION=3.20
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    DISTRIBUTION_VERSION=3.20
 
 # ----------------------------------------------------------------------
 # Selected base -- everything from here down is OS-agnostic application
@@ -91,32 +66,17 @@ FROM base-${TARGET_OS}
 LABEL maintainer="Francois Lacroix <xbgmsharp@gmail.com>"
 
 # Re-declared: an ARG's value doesn't survive past the FROM that consumes
-# it unless declared again in the new stage. Turned into an ENV right away
-# so install.sh (run later via `bash /tmp/install.sh`) and start.sh (at
-# container runtime, long after any ARG has gone) can both just read
-# $TARGET_OS directly.
+# it unless declared again in the new stage.
 ARG TARGET_OS=ubuntu
 ENV TARGET_OS=${TARGET_OS}
 
 # Set ENV
-ENV HOME=/root
-ENV DEBIAN_FRONTEND=noninteractive
-ENV GIT_SSL_VERIFY=true
-# Frozen by default: a SHA/version-tagged image should run the exact
-# revision baked in at build time. Set to "true" to pull updates on every
-# container start instead.
-ENV UPDATE_ON_START=false
-# SSH is off by default -- no hard-coded password, no default root access.
-# Set to "true" plus SSH_AUTHORIZED_KEY (preferred) or SSH_ROOT_PASSWORD to
-# enable it at runtime; see start.sh. Normal debugging should use
-# `docker exec` instead.
-ENV ENABLE_SSH=false
-# Certificate trust and Secure Boot signing/verification are opt-in: off
-# unless this is set to "true". Anything that handles a private key stays
-# absent from a default deployment, and build.fcgi/verify.fcgi refuse the
-# corresponding fields outright rather than only hiding the UI for them;
-# see start.sh.
-ENV UI_ENABLE_CERT_FEATURE=false
+ENV HOME=/root \
+    DEBIAN_FRONTEND=noninteractive \
+    GIT_SSL_VERIFY=true \
+    UPDATE_ON_START=false \
+    ENABLE_SSH=false \
+    UI_ENABLE_CERT_FEATURE=false
 
 RUN mkdir -p /run/sshd
 
@@ -133,15 +93,6 @@ COPY install.sh scripts/os-env.sh /tmp/
 
 # Install it all. TARGET_OS is already in the environment (set above), so
 # install.sh picks its apt/apk branch from that without any extra plumbing.
-# No `chmod +x /tmp/install.sh` first: it's invoked as an argument to bash,
-# which never consults the execute bit, so that was a layer for nothing.
-#
-# The /tmp sweep rides along in this same RUN deliberately -- it removes the
-# two files COPYed just above, which only a command in this layer or later
-# can do, and folding it in here means it costs no extra layer. install.sh
-# does its own apt cleanup internally for the same same-layer reason; see
-# the comment there. start.sh sources os-env.sh from the cloned repo at
-# /opt/rom-o-matic/scripts/, not from this /tmp copy, so removing it is safe.
 RUN bash /tmp/install.sh \
  && rm -rf /tmp/* /var/tmp/*
 
@@ -154,11 +105,6 @@ WORKDIR /var/www/ipxe-buildweb
 # Expose ports.
 EXPOSE 22 80
 
-# (The package-manager cleanup that used to sit here has moved into the
-# install RUN above. As a standalone later RUN it saved nothing -- layers
-# are additive, so it only wrote whiteouts over caches the install layer
-# still shipped, while adding a layer of its own.)
-
 # Make sure the package repository is up to date if used as a base build
 # https://docs.docker.com/engine/reference/builder/#onbuild
 ONBUILD RUN if [ "$TARGET_OS" = "ubuntu" ]; then apt-get update && apt-get -yq upgrade; else apk update && apk upgrade; fi
@@ -167,28 +113,11 @@ ONBUILD RUN if [ "$TARGET_OS" = "ubuntu" ]; then apt-get clean && rm -rf /var/li
 # Set as execute with +x. options.php execs parseheaders.py directly, so it
 # needs the bit too -- don't rely on the mode surviving a checkout, since a
 # Windows clone with core.fileMode=false won't carry it.
-#
-# The .fcgi scripts are the case that proved the point: mod_fcgid execs them
-# directly, so one committed without the bit set (verify.fcgi, added from a
-# Windows working tree where core.fileMode=false hid the difference) failed
-# on every single request in CI while working perfectly in every local test
-# -- because `docker cp` copies the working tree's real mode, and only a
-# fresh `git clone` reproduces what git actually recorded. The failure is
-# silent and remote from its cause: the forked child dies before exec'ing
-# perl, so neither Apache nor Perl logs anything, and Apache answers with
-# its own generic 500. Globbed rather than named individually so a future
-# .fcgi is covered automatically.
 RUN chmod +x \
       /opt/rom-o-matic/start.sh \
       /opt/rom-o-matic/update.sh \
       /opt/rom-o-matic/scripts/parseheaders.py \
       /opt/rom-o-matic/public/*.fcgi
-
-# (The `git config --global --add safe.directory /opt/rom-o-matic/ipxe` that
-# used to follow is gone: install.sh already sets it, for both the ipxe
-# submodule and the repo root, and runs as the same root user with the same
-# HOME=/root -- so it wrote the identical line to the identical
-# /root/.gitconfig, one layer earlier.)
 
 # Reflect whether the web service is actually responding, not just whether
 # the container process is alive. wget is present by default on both bases

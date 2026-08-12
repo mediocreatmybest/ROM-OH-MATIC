@@ -5,11 +5,6 @@
 #
 #   docker compose --profile alpine up alpine
 #
-# Naming the service on that command matters: `--profile alpine up` alone
-# would activate *and* start Ubuntu (still in the default set) at the same
-# time as Alpine. Distinct host ports below mean that's harmless if it ever
-# happens, but naming the service is the deliberate way to get just one.
-#
 # Both services build locally by default. To pull the published images
 # instead, use `docker compose pull ubuntu` / `pull alpine`, then
 # `up --no-build`.
@@ -35,11 +30,11 @@ services:
     image: mediocreatmybest/ipxe-buildweb:latest
     container_name: ipxe-buildweb
     ports:
-      - "${HTTP_PORT:-8080}:80"
+      - '${HTTP_PORT:-8080}:80'
 
   alpine:
     <<: *common
-    profiles: ["alpine"]
+    profiles: ['alpine']
     build:
       context: .
       args:
@@ -47,4 +42,4 @@ services:
     image: mediocreatmybest/ipxe-buildweb:latest-alpine
     container_name: ipxe-buildweb-alpine
     ports:
-      - "${HTTP_PORT_ALPINE:-8081}:80"
+      - '${HTTP_PORT_ALPINE:-8081}:80'

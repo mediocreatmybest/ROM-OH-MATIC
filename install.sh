@@ -13,11 +13,6 @@
 # shellcheck source=scripts/os-env.sh disable=SC1091
 . /tmp/os-env.sh
 
-# Every package installed below, before anything touches the filesystem as
-# $WWW_OWNER. On Ubuntu www-data already exists in the base image, but on
-# Alpine the apache user is created by the apache2 package itself --
-# chowning to it earlier (as this script briefly did) fails with "unknown
-# user/group" because that package hasn't been installed yet.
 if [ "$TARGET_OS" = "ubuntu" ]; then
     # Fix "Error debconf: unable to initialize frontend: Dialog"
     echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
@@ -70,36 +65,18 @@ if [ "$TARGET_OS" = "ubuntu" ]; then
     apt-get -yq install \
 	sbsigntool
 
-    # Drop apt's package lists here, in the same shell (and therefore the
-    # same Docker layer) as the installs above. Cleaning them from a later
-    # RUN, as the Dockerfile used to, saves nothing at all: layers are
-    # additive, so the ~40-60 MB of lists stays in this layer's tarball and
-    # is still pulled by every user, with the later layer only writing
-    # whiteout entries over it. Nothing after this point installs packages
-    # -- neither the rest of this script nor start.sh/update.sh at runtime
-    # -- so there is nothing left to re-`apt-get update` for.
     # Alpine needs no equivalent: its `apk add --no-cache` calls below never
     # write an index in the first place.
     apt-get clean
     rm -rf /var/lib/apt/lists/*
 else
-    # --no-cache fetches the package index for each operation and discards
-    # it, so there is deliberately no `apk update` here: it would not save
-    # these calls any work, and it is the one thing that would leave a
-    # persistent index behind in /var/cache/apk to have to clean up later.
+    # --no-cache fetches the package index for each operation and discards it
     apk add --no-cache git
     # Alpine ships no shell but busybox ash by default. install.sh,
     # start.sh and update.sh all use bash-specific syntax, so bash is
     # installed here rather than rewritten to plain POSIX sh.
     apk add --no-cache bash
 
-    # coreutils: iPXE's crypto/rootcert build rule splits a PEM bundle with
-    # csplit, which busybox does not implement at all -- without it a
-    # certificate-trust build (TRUST=...) dies with "csplit: No such file or
-    # directory" and then an unhelpful "No rule to make target
-    # bin-*/.certificate.pem.1". Plain and signed builds don't touch that
-    # rule, so this only shows up on the trust path. Ubuntu's coreutils is
-    # part of its base image already.
     apk add --no-cache \
 	build-base coreutils \
 	iasl mtools perl python3 \
@@ -138,19 +115,9 @@ else
 	syslinux
 
     # sbsigntool: sbsign/sbverify, for optionally signing a built EFI binary
-    # for Secure Boot with an admin-supplied key, and for verifying an
-    # arbitrary EFI binary against a public certificate. Neither feature
-    # generates or stores any key -- see public/build.fcgi's sign_binary()
-    # and public/verify.fcgi.
     apk add --no-cache \
 	sbsigntool
 
-    # build.fcgi and verify.fcgi both shell out to the openssl CLI directly
-    # (certificate parsing/validation ahead of sbsign) -- present by default
-    # on Ubuntu, but Alpine's base image has no openssl binary at all, only
-    # busybox applets, none of which is it. Confirmed missing (and this
-    # line added) after an actual signed-build request 500'd with
-    # `"openssl" failed to start: "No such file or directory"`.
     apk add --no-cache \
 	openssl
 fi

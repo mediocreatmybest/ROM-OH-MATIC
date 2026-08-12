@@ -182,17 +182,6 @@ sub load_cached_binaries {
   warn "Opening binary tarball ".$tarball."...\n" if $verbosity > 1;
   my $tarfh;
   if ( ! open $tarfh, "<", $tarball ) {
-    # A tag naming a tarball that is no longer there is a cache miss,
-    # not a failure: the cache only exists to save time, so its absence
-    # must never fail a build the way dying here did. Dying also
-    # produced Apache's own generic 500 page rather than any message
-    # from this script, since it happens before any header is sent,
-    # which made the cause invisible from the response alone.
-    #
-    # The window is real rather than theoretical: start_gzip()'s
-    # background child deletes exactly this tag and tarball once it has
-    # finished compressing, and can do so between the git describe above
-    # and this open.
     warn "Could not open ".$tarball.": ".$!." - treating as cache miss\n";
     cache_unlock();
     return;
@@ -205,9 +194,6 @@ sub load_cached_binaries {
   # Release cache lock
   cache_unlock();
 
-  # Check out commit corresponding to cached binaries.  Check out by
-  # sha1 rather than tag, since we have released the cache lock and so
-  # the tag may no longer exist.
   warn "Checking out revision ".$cached."...\n" if $verbosity > 1;
   systemx ( "git", "--git-dir", $gitdir, "--work-tree", $worktree,
 	    "checkout", "--quiet", $cached );
@@ -284,10 +270,6 @@ sub save_cached_binaries {
   }
   undef $tarfh;
 
-  # Create tag in upstream repository.  Do this even if tarball
-  # already exists, in case a previous cache save managed to create
-  # the tarball but failed to create the tag.  (There is no way to
-  # make these two operations properly atomic.)
   my $tag = "ipxe-build/cached/".$bindir."/".$revision;
   warn "Creating tag ".$tag."...\n" if $verbosity > 1;
   systemx ( "git", "--git-dir", $repository, "tag", "--force",
@@ -367,22 +349,10 @@ sub start_gzip {
     return;
   }
 
-  # Re-open the lockfile so this child has its own open file
-  # description.
+  # Re-open the lockfile so this child has its own open file description.
   #
   # flock() locks belong to the open file description, not to the
-  # process, and fork() leaves parent and child sharing one. This fork
-  # happens while the caller holds the cache lock, so without this the
-  # child inherits that lock: its cache_lock() below would return
-  # immediately even while a request being served by the parent holds
-  # the lock, and either side's cache_unlock() would drop it for both.
-  # The tag and tarball deletion at the end of this function would then
-  # be free to run while a concurrent request sits between finding a
-  # cache tag and opening the tarball that tag names.
-  #
-  # Closing the inherited descriptor here does not disturb the parent's
-  # lock: the open file description survives while the parent still
-  # refers to it.
+  # process, and fork() leaves parent and child sharing one.
   close $lockfh;
   open $lockfh, "+>>", $lockfile
       or die "Could not reopen lockfile: $!\n";
@@ -445,25 +415,7 @@ sub start_gzip {
   # Exit child
   #
   # _exit(), not exit(): this process is a fork of the one still serving
-  # the request, so it shares that request's FCGI object. A normal exit()
-  # runs global destruction, and FCGI::DESTROY then *finishes the parent's
-  # request* -- from here, while the parent is still compiling. mod_fcgid
-  # sees the response stream end without headers, answers the client with
-  # its own generic 500, and the build goes on to complete perfectly into
-  # a connection nobody is listening to any more.
-  #
-  # Whoever finishes first wins, so this is a race and not a reliable
-  # failure. Compression usually finishes long after the response is
-  # already sent, which is why it went unnoticed; it surfaced on the
-  # slower Alpine build, where the final `make` after a cache-populating
-  # build still had ~50s to run when gzip finished. The main loop guards
-  # the same hazard for its own request children with a FCGI::DESTROY
-  # override (see the comment there); this is that hazard's other fork.
-  #
-  # Everything this child needs to clean up is done explicitly above
-  # (cache_unlock, the rename/unlink, undef $gzfh), so nothing of value
-  # is lost by skipping global destruction. Buffers are flushed by hand
-  # first, since _exit() will not do it.
+  # the request, so it shares that request's FCGI object. Calling exit() would destroy that object and break the request.
   STDOUT->flush();
   STDERR->flush();
   _exit ( 0 );
@@ -746,11 +698,7 @@ use constant SIGN_TIMEOUT_SECS   => 20;    # generous; sbsign on a few MB is
 # sign_binary() necessarily runs once the binary exists. With these checks
 # living only there, a request that could never succeed -- a missing field,
 # a passphrase-protected key, signing asked for on a deployment that has it
-# switched off -- still paid for a full EFI compile before being told. That
-# is a minute of CPU spent on a request rejected purely on its own
-# contents, and a minute of the requester's time to learn they attached the
-# wrong file. It also made CI fail on the slower Alpine image, where those
-# rejections no longer fit inside smoke-signing.sh's 60s allowance.
+# switched off.
 #
 # Returns true when signing was requested and everything checks out, false
 # when no signing material was supplied at all; dies otherwise.
