@@ -75,24 +75,12 @@ ARG TARGET_OS=ubuntu
 ENV TARGET_OS=${TARGET_OS}
 
 # Set ENV
-ENV HOME=/root
-ENV DEBIAN_FRONTEND=noninteractive
-ENV GIT_SSL_VERIFY=true
-# Frozen by default: a SHA/version-tagged image should run the exact
-# revision baked in at build time. Set to "true" to pull updates on every
-# container start instead.
-ENV UPDATE_ON_START=false
-# SSH is off by default -- no hard-coded password, no default root access.
-# Set to "true" plus SSH_AUTHORIZED_KEY (preferred) or SSH_ROOT_PASSWORD to
-# enable it at runtime; see start.sh. Normal debugging should use
-# `docker exec` instead.
-ENV ENABLE_SSH=false
-# Certificate trust and Secure Boot signing/verification are opt-in: off
-# unless this is set to "true". Anything that handles a private key stays
-# absent from a default deployment, and build.fcgi/verify.fcgi refuse the
-# corresponding fields outright rather than only hiding the UI for them;
-# see start.sh.
-ENV UI_ENABLE_CERT_FEATURE=false
+ENV HOME=/root \
+    DEBIAN_FRONTEND=noninteractive \
+    GIT_SSL_VERIFY=true \
+    UPDATE_ON_START=false \
+    ENABLE_SSH=false \
+    UI_ENABLE_CERT_FEATURE=false
 
 RUN mkdir -p /run/sshd
 
@@ -106,12 +94,8 @@ ARG GIT_REF=master
 # repo -- copied here too since /opt/rom-o-matic doesn't exist yet at this
 # point in the build).
 COPY install.sh scripts/os-env.sh /tmp/
-RUN chmod +x /tmp/install.sh
-
-# Install it all. TARGET_OS is already in the environment (set above), so
-# install.sh picks its apt/apk branch from that without any extra plumbing.
-RUN \
-  bash /tmp/install.sh
+RUN chmod +x /tmp/install.sh \
+    && bash /tmp/install.sh
 
 # Define environment variables
 ENV PORT=80
@@ -134,24 +118,11 @@ RUN if [ "$TARGET_OS" = "ubuntu" ]; then \
 ONBUILD RUN if [ "$TARGET_OS" = "ubuntu" ]; then apt-get update && apt-get -yq upgrade; else apk update && apk upgrade; fi
 ONBUILD RUN if [ "$TARGET_OS" = "ubuntu" ]; then apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*; else rm -rf /var/cache/apk/* /tmp/* /var/tmp/*; fi
 
-# Set as execute with +x. options.php execs parseheaders.py directly, so it
-# needs the bit too -- don't rely on the mode surviving a checkout, since a
-# Windows clone with core.fileMode=false won't carry it.
-#
-# The .fcgi scripts are the case that proved the point: mod_fcgid execs them
-# directly, so one committed without the bit set (verify.fcgi, added from a
-# Windows working tree where core.fileMode=false hid the difference) failed
-# on every single request in CI while working perfectly in every local test
-# -- because `docker cp` copies the working tree's real mode, and only a
-# fresh `git clone` reproduces what git actually recorded. The failure is
-# silent and remote from its cause: the forked child dies before exec'ing
-# perl, so neither Apache nor Perl logs anything, and Apache answers with
-# its own generic 500. Globbed rather than named individually so a future
-# .fcgi is covered automatically.
-RUN chmod +x /opt/rom-o-matic/start.sh
-RUN chmod +x /opt/rom-o-matic/update.sh
-RUN chmod +x /opt/rom-o-matic/scripts/parseheaders.py
-RUN chmod +x /opt/rom-o-matic/public/*.fcgi
+
+RUN chmod +x /opt/rom-o-matic/start.sh \
+    && chmod +x /opt/rom-o-matic/update.sh \
+    && chmod +x /opt/rom-o-matic/scripts/parseheaders.py \
+    && chmod +x /opt/rom-o-matic/public/*.fcgi
 
 # Allow iPXE submodule to be updated due to change in ownership with submodules
 RUN git config --global --add safe.directory /opt/rom-o-matic/ipxe
