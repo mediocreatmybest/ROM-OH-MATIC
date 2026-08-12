@@ -16,9 +16,9 @@ The build.fcgi script is written in Perl and was wrote by Michael Brown.
 
 [![Docker build (Ubuntu)](https://github.com/mediocreatmybest/ROM-OH-MATIC/actions/workflows/docker-ubuntu.yml/badge.svg?branch=master)](https://github.com/mediocreatmybest/ROM-OH-MATIC/actions/workflows/docker-ubuntu.yml)
 [![Docker build (Alpine)](https://github.com/mediocreatmybest/ROM-OH-MATIC/actions/workflows/docker-alpine.yml/badge.svg?branch=master)](https://github.com/mediocreatmybest/ROM-OH-MATIC/actions/workflows/docker-alpine.yml)
-[![Docker pulls](https://img.shields.io/docker/pulls/mediocreatmybest/ipxe-buildweb)](https://hub.docker.com/r/mediocreatmybest/ipxe-buildweb)
 [![Docker image size (Ubuntu)](https://img.shields.io/docker/image-size/mediocreatmybest/ipxe-buildweb/latest?label=image%20size%20%28ubuntu%29)](https://hub.docker.com/r/mediocreatmybest/ipxe-buildweb/tags)
 [![Docker image size (Alpine)](https://img.shields.io/docker/image-size/mediocreatmybest/ipxe-buildweb/latest-alpine?label=image%20size%20%28alpine%29)](https://hub.docker.com/r/mediocreatmybest/ipxe-buildweb/tags)
+[![Docker pulls](https://img.shields.io/docker/pulls/mediocreatmybest/ipxe-buildweb)](https://hub.docker.com/r/mediocreatmybest/ipxe-buildweb)
 
 > [!NOTE]
 > This is a maintenance fork of [xbgmsharp/ipxe-buildweb](https://github.com/xbgmsharp/ipxe-buildweb), kept moving while the upstream repository is quiet. The intention is to preserve a working build, not to replace the original project. If the upstream becomes active again, the repository will be archived, rather than maintaining two versions for the fun of it.
@@ -38,17 +38,17 @@ This repository is not part of, or endorsed by, the official [iPXE project](http
 
 The Docker image is automatically built and published from `master`. Every build runs automated container startup, HTTP, and application-level iPXE generation tests before the image is published.
 
-| Capability                        | Current status                             |
-| --------------------------------- | ------------------------------------------ |
-| Docker image build                | Automated on pushes to `master`, Ubuntu and Alpine built independently |
-| Docker image publication          | Automated as part of each build's own workflow |
-| Container startup test            | ✅                                         |
-| HTTP response test                | ✅                                         |
-| iPXE artefact generation test     | ✅                                         |
-| Certificate trust build test      | ✅                                         |
-| Secure Boot sign and verify test  | ✅                                         |
-| Published platform                | `linux/amd64`                              |
-| Container bases                   | Ubuntu 24.04 LTS (default), Alpine 3.20    |
+| Capability                       | Current status                                                         |
+| -------------------------------- | ---------------------------------------------------------------------- |
+| Docker image build               | Automated on pushes to `master`, Ubuntu and Alpine built independently |
+| Docker image publication         | Automated as part of each build's own workflow                         |
+| Container startup test           | ✅                                                                     |
+| HTTP response test               | ✅                                                                     |
+| iPXE artefact generation test    | ✅                                                                     |
+| Certificate trust build test     | ✅                                                                     |
+| Secure Boot sign and verify test | ✅                                                                     |
+| Published platform               | `linux/amd64`                                                          |
+| Container bases                  | Ubuntu 24.04 LTS (default), Alpine 3.20                                |
 
 A green build badge means that variant's image built, started successfully, responded over HTTP, and produced a working iPXE artefact, before being published. Ubuntu and Alpine build and publish independently, so one badge can be green while the other is red.
 
@@ -92,7 +92,7 @@ The simplest way to get running: `docker-compose.yml` covers both published vari
 docker compose up -d
 ```
 
-Open <http://localhost:8080>. Alpine is opt-in, via its own profile -- name the service too, so only Alpine starts rather than Alpine *and* the still-default Ubuntu service:
+Open <http://localhost:8080>. Alpine is opt-in, via its own profile -- name the service too, so only Alpine starts rather than Alpine _and_ the still-default Ubuntu service:
 
 ```bash
 docker compose --profile alpine up -d alpine

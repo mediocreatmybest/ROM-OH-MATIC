@@ -13,11 +13,6 @@
 # shellcheck source=scripts/os-env.sh disable=SC1091
 . /tmp/os-env.sh
 
-# Every package installed below, before anything touches the filesystem as
-# $WWW_OWNER. On Ubuntu www-data already exists in the base image, but on
-# Alpine the apache user is created by the apache2 package itself --
-# chowning to it earlier (as this script briefly did) fails with "unknown
-# user/group" because that package hasn't been installed yet.
 if [ "$TARGET_OS" = "ubuntu" ]; then
     # Fix "Error debconf: unable to initialize frontend: Dialog"
     echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
@@ -69,24 +64,22 @@ if [ "$TARGET_OS" = "ubuntu" ]; then
     # and public/verify.fcgi.
     apt-get -yq install \
 	sbsigntool
+
+    # Cleaned here, in the same shell and therefore the same Docker layer as
+    # the installs above -- a later RUN would only whiteout the bytes, not
+    # remove them from the image. Nothing after this installs packages.
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
 else
-    # Alpine's index needs refreshing the same way apt's does; --no-cache
-    # skips the local package index cache entirely instead of needing a
-    # separate `rm -rf /var/cache/apk/*` cleanup step later.
-    apk update
+    # --no-cache fetches the index per operation and discards it, so no
+    # `apk update` is wanted here -- that would leave one behind for nothing.
     apk add --no-cache git
-    # Alpine ships no shell but busybox ash by default. install.sh,
-    # start.sh and update.sh all use bash-specific syntax, so bash is
-    # installed here rather than rewritten to plain POSIX sh.
+    # The scripts use bash-specific syntax; Alpine ships busybox ash only.
     apk add --no-cache bash
 
-    # coreutils: iPXE's crypto/rootcert build rule splits a PEM bundle with
-    # csplit, which busybox does not implement at all -- without it a
-    # certificate-trust build (TRUST=...) dies with "csplit: No such file or
-    # directory" and then an unhelpful "No rule to make target
-    # bin-*/.certificate.pem.1". Plain and signed builds don't touch that
-    # rule, so this only shows up on the trust path. Ubuntu's coreutils is
-    # part of its base image already.
+    # coreutils: iPXE's rootcert rule splits a PEM bundle with csplit, which
+    # busybox lacks -- without it, only certificate-trust builds fail, and
+    # obscurely. Ubuntu has it in the base image.
     apk add --no-cache \
 	build-base coreutils \
 	iasl mtools perl python3 \
@@ -125,19 +118,11 @@ else
 	syslinux
 
     # sbsigntool: sbsign/sbverify, for optionally signing a built EFI binary
-    # for Secure Boot with an admin-supplied key, and for verifying an
-    # arbitrary EFI binary against a public certificate. Neither feature
-    # generates or stores any key -- see public/build.fcgi's sign_binary()
-    # and public/verify.fcgi.
     apk add --no-cache \
 	sbsigntool
 
-    # build.fcgi and verify.fcgi both shell out to the openssl CLI directly
-    # (certificate parsing/validation ahead of sbsign) -- present by default
-    # on Ubuntu, but Alpine's base image has no openssl binary at all, only
-    # busybox applets, none of which is it. Confirmed missing (and this
-    # line added) after an actual signed-build request 500'd with
-    # `"openssl" failed to start: "No such file or directory"`.
+    # build.fcgi and verify.fcgi shell out to the openssl CLI. Ubuntu ships
+    # it; Alpine's base image has only busybox applets, none of which is it.
     apk add --no-cache \
 	openssl
 fi
