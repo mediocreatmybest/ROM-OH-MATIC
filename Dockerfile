@@ -31,7 +31,7 @@ ARG TARGET_OS=ubuntu
 # Lets clean some of this up, simplifying these into single layers.
 FROM ubuntu:24.04 AS base-ubuntu
 
-ENV LANG=en_US.utf8 \
+ENV LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8 \
     DISTRIBUTION_VERSION=24.04
 
