@@ -18,11 +18,18 @@ case "$TARGET_OS" in
 	DOCROOT_LINK=/var/www/html
 	APACHE_MAIN_CONF=/etc/apache2/apache2.conf
 	APACHE_FOREGROUND_CMD=(apachectl -D FOREGROUND)
-	# There's no Ubuntu equivalent of Alpine's conf.d auto-include (see
-	# below) -- fcgid.conf here both loads the module (a2enmod's job on
-	# a real install) and carries this app's own <Files ~ (\.fcgi)>
-	# handler block.
-	FCGID_CONF_PATH=/etc/apache2/mods-enabled/fcgid.conf
+	# Carries this app's own <Files ~ (\.fcgi)> handler block. It does
+	# not load mod_fcgid -- the package's own postinst does that, via
+	# the mods-enabled/fcgid.load symlink.
+	#
+	# conf-enabled, not mods-enabled: mods-enabled/fcgid.conf is a
+	# symlink to the packaged mods-available/fcgid.conf, so writing
+	# there overwrote a dpkg conffile in place. conf-enabled is
+	# Apache's own drop-in directory (apache2.conf IncludeOptional-s
+	# it) and is included after mods-enabled, so the values below still
+	# override the package's defaults. This mirrors the Alpine branch,
+	# which already writes its own file rather than the package's.
+	FCGID_CONF_PATH=/etc/apache2/conf-enabled/rom-o-matic-fcgid.conf
 	;;
     alpine)
 	WWW_OWNER=apache:apache
