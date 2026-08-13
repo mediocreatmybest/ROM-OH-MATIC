@@ -131,7 +131,9 @@ RUN chmod +x \
       /opt/rom-o-matic/public/*.fcgi
 
 # Reflects whether the web service responds, not just whether the process is
-# alive. wget is present on both bases; curl is on neither.
+# alive. wget: busybox supplies it on Alpine, and install.sh installs it on
+# Ubuntu, whose base image ships neither wget nor curl. Keep that install --
+# without it this probe fails every time and the container never goes healthy.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -q -O /dev/null http://localhost:80/ || exit 1
 
