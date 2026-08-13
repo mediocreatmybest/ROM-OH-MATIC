@@ -24,7 +24,8 @@
 #
 ### Apache
 # Handled by the same "AddHandler fcgid-script .fcgi" rule build.fcgi
-# uses -- see install.sh's fcgid.conf. No separate registration needed.
+# uses -- see the block install.sh writes to FCGID_CONF_PATH (defined per
+# OS in scripts/os-env.sh). No separate registration needed.
 
 use CGI qw ( :cgi );
 use FCGI;
