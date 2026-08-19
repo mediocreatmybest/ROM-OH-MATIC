@@ -26,7 +26,7 @@ ARG TARGET_OS=ubuntu
 # ----------------------------------------------------------------------
 # Pinned to an LTS release: ubuntu:latest can resolve to a non-LTS interim
 # release with an incomplete package set.
-FROM ubuntu:24.04 AS base-ubuntu
+FROM ubuntu:25.10 AS base-ubuntu
 
 # Package lists are removed in the same RUN that creates them. A later RUN
 # only whiteouts them -- the bytes still ship in this layer.
@@ -48,7 +48,7 @@ ENV LANG=en_US.UTF-8 \
 # ----------------------------------------------------------------------
 # Alpine base
 # ----------------------------------------------------------------------
-FROM alpine:3.20 AS base-alpine
+FROM alpine:3.24 AS base-alpine
 
 # --no-cache fetches the index per operation and discards it, so nothing
 # persists in /var/cache/apk. bash: the scripts use bash-specific syntax and
