@@ -26,11 +26,30 @@ ARG TARGET_OS=ubuntu
 # ----------------------------------------------------------------------
 # Pinned to an LTS release: ubuntu:latest can resolve to a non-LTS interim
 # release with an incomplete package set.
-FROM ubuntu:24.04 AS base-ubuntu
+FROM ubuntu:26.04 AS base-ubuntu
+
+# Hand-maintained duplicate of the FROM tag above, surfaced on the published
+# image as org.rom-oh-matic.distribution.version. Kept as a literal rather
+# than derived from a shared ARG: a variable FROM tag would be a single
+# source of truth, but Dependabot cannot parse one, and the base-image
+# updates it raises are worth more than the duplication costs. The RUN below
+# asserts the two agree, so the duplication cannot drift silently.
+ENV DISTRIBUTION_VERSION=26.04
 
 # Package lists are removed in the same RUN that creates them. A later RUN
 # only whiteouts them -- the bytes still ship in this layer.
-RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections \
+#
+# The version assert leads: it needs no packages, and a mismatch should fail
+# before a full apt cycle is spent on an image that is going to be
+# mislabelled anyway. Folded into this RUN rather than given its own so it
+# costs no extra layer.
+RUN . /etc/os-release \
+ && if [ "$VERSION_ID" != "$DISTRIBUTION_VERSION" ]; then \
+      echo "Dockerfile: DISTRIBUTION_VERSION is $DISTRIBUTION_VERSION but this base image is $VERSION_ID." >&2; \
+      echo "Update the ENV in the base-ubuntu stage to match its FROM tag." >&2; \
+      exit 1; \
+    fi \
+ && echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections \
  && echo 'alias ll="ls -lah --color=auto"' >> /etc/bash.bashrc \
  && apt-get update \
  && apt-get -yq upgrade \
@@ -42,24 +61,38 @@ RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selectio
 # After the RUN above: locale-gen is passed the locale explicitly and never
 # reads these.
 ENV LANG=en_US.UTF-8 \
-    LC_ALL=en_US.UTF-8 \
-    DISTRIBUTION_VERSION=24.04
+    LC_ALL=en_US.UTF-8
 
 # ----------------------------------------------------------------------
 # Alpine base
 # ----------------------------------------------------------------------
-FROM alpine:3.20 AS base-alpine
+FROM alpine:3.24 AS base-alpine
+
+# The release series, matching the FROM tag above -- see the note in the
+# base-ubuntu stage for why this is a literal and not a shared ARG.
+ENV DISTRIBUTION_VERSION=3.24
 
 # --no-cache fetches the index per operation and discards it, so nothing
 # persists in /var/cache/apk. bash: the scripts use bash-specific syntax and
 # Alpine ships busybox ash only.
-RUN apk upgrade --no-cache \
+#
+# The version assert leads, as in the base-ubuntu stage. Alpine reports a
+# patch-level VERSION_ID (3.24.1) where the FROM tag names only the series
+# (3.24), so this accepts the series itself or any patch release under it,
+# rather than comparing for equality the way the Ubuntu side can.
+RUN . /etc/os-release \
+ && case "$VERSION_ID" in \
+      "$DISTRIBUTION_VERSION"|"$DISTRIBUTION_VERSION".*) ;; \
+      *) echo "Dockerfile: DISTRIBUTION_VERSION is $DISTRIBUTION_VERSION but this base image is $VERSION_ID." >&2; \
+         echo "Update the ENV in the base-alpine stage to match its FROM tag." >&2; \
+         exit 1 ;; \
+    esac \
+ && apk upgrade --no-cache \
  && apk add --no-cache bash openssh-server
 
 # musl has no glibc-style locales; C.UTF-8 is the practical equivalent.
 ENV LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8 \
-    DISTRIBUTION_VERSION=3.20
+    LC_ALL=C.UTF-8
 
 # ----------------------------------------------------------------------
 # Selected base -- everything from here down is OS-agnostic application
