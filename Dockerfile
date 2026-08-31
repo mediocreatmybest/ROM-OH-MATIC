@@ -26,7 +26,7 @@ ARG TARGET_OS=ubuntu
 # ----------------------------------------------------------------------
 # Pinned to an LTS release: ubuntu:latest can resolve to a non-LTS interim
 # release with an incomplete package set.
-FROM ubuntu:24.04 AS base-ubuntu
+FROM ubuntu:26.04 AS base-ubuntu
 
 # Package lists are removed in the same RUN that creates them. A later RUN
 # only whiteouts them -- the bytes still ship in this layer.
@@ -43,12 +43,12 @@ RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selectio
 # reads these.
 ENV LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8 \
-    DISTRIBUTION_VERSION=24.04
+    DISTRIBUTION_VERSION=26.04
 
 # ----------------------------------------------------------------------
 # Alpine base
 # ----------------------------------------------------------------------
-FROM alpine:3.20 AS base-alpine
+FROM alpine:3.24 AS base-alpine
 
 # --no-cache fetches the index per operation and discards it, so nothing
 # persists in /var/cache/apk. bash: the scripts use bash-specific syntax and
@@ -59,7 +59,7 @@ RUN apk upgrade --no-cache \
 # musl has no glibc-style locales; C.UTF-8 is the practical equivalent.
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
-    DISTRIBUTION_VERSION=3.20
+    DISTRIBUTION_VERSION=3.24
 
 # ----------------------------------------------------------------------
 # Selected base -- everything from here down is OS-agnostic application

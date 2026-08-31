@@ -39,15 +39,17 @@ if [ "$TARGET_OS" = "ubuntu" ]; then
 	libcgi-pm-perl
 
     # Install Apache with fast CGI and PHP module. libapache2-mod-php is a
-    # metapackage that pulls whichever PHP the base release ships (8.3 on
-    # 24.04), and both it and libapache2-mod-fcgid enable themselves via their
-    # dh_apache2 postinst -- php8.3.load and fcgid.load are already symlinked
-    # into mods-enabled before any a2enmod could run. So there's no
+    # metapackage that pulls whichever PHP the base release ships, and both
+    # it and libapache2-mod-fcgid enable themselves via their dh_apache2
+    # postinst -- phpX.Y.load and fcgid.load are already symlinked into
+    # mods-enabled before any a2enmod could run. So there's no
     # version-specific a2enmod step to keep in sync here, the same reasoning as
     # the Alpine branch below. A hardcoded `a2enmod fcgid php8.5` used to live
     # here and had silently not matched the base since it was pinned to 24.04;
     # it failed every build with "Module php8.5 does not exist!" and went
     # unnoticed because nothing checks this script's intermediate exit codes.
+    # Naming no PHP version above is deliberate: the last one named here went
+    # stale at a base bump, which is the failure this branch exists to avoid.
     apt-get -yq install \
 	libapache2-mod-fcgid \
 	libapache2-mod-php
@@ -87,7 +89,7 @@ if [ "$TARGET_OS" = "ubuntu" ]; then
 
     # wget: used only by the Dockerfile's HEALTHCHECK, which is a single
     # shared line for both bases. Alpine gets it free from busybox, but
-    # ubuntu:24.04 ships neither wget nor curl -- so without this every
+    # the Ubuntu base ships neither wget nor curl -- so without this every
     # probe failed with "wget: not found" and the container sat permanently
     # unhealthy, which anything gating on health status (compose's
     # service_healthy condition, swarm, k8s) would treat as a dead image.
