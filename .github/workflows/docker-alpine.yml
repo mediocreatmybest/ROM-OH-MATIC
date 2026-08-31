@@ -97,6 +97,15 @@ jobs:
           cache-from: type=gha,scope=${{ env.TARGET_OS }}
           cache-to: type=gha,mode=max,scope=${{ env.TARGET_OS }}
 
+      # The Dockerfile asserts at build time that DISTRIBUTION_VERSION matches
+      # the base it is building on. This checks the other half of the same
+      # invariant -- that the value actually reaches the image's labels, which
+      # is what anyone inspecting the published image reads. Run before the
+      # container starts: it needs only the image, and a mislabelled build
+      # should fail before the smoke suite is spent on it.
+      - name: Check distribution labels match the base image
+        run: bash scripts/ci/check-image-labels.sh "${{ env.IMAGE_NAME }}:test-${{ env.TARGET_OS }}"
+
       # UI_ENABLE_CERT_FEATURE is off in the image by default, so the
       # certificate-trust and Secure Boot tests below would have nothing to
       # exercise without it. The shipped default is covered separately, by
